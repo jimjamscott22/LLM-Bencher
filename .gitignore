@@ -49,6 +49,8 @@ coverage.xml
 *.py.cover
 .hypothesis/
 .pytest_cache/
+.pytest_tmp*/
+pytest-cache-files-*/
 cover/
 
 # Translations
@@ -143,6 +145,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+.uv-cache/
 
 # Spyder project settings
 .spyderproject
@@ -205,3 +208,5 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+.test-tmp/
+

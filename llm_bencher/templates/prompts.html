@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %} | Prompt Library{% endblock %}
+{% block content %}
+<section class="section-header">
+  <div>
+    <p class="eyebrow">Prompt Library</p>
+    <h1>Portable suites will plug in here.</h1>
+  </div>
+  <p class="lede">
+    The database and file-schema types are in place. Import, sync, and export
+    routes are the next step.
+  </p>
+</section>
+
+<section class="panel">
+  <h2>Current state</h2>
+  <p>No prompt suites have been imported yet.</p>
+  <p><strong>{{ prompt_count }}</strong> prompt records are currently stored.</p>
+</section>
+{% endblock %}

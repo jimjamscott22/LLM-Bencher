@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %} | History{% endblock %}
+{% block content %}
+<section class="section-header">
+  <div>
+    <p class="eyebrow">Saved Results</p>
+    <h1>Run history</h1>
+  </div>
+  <p class="lede">
+    Persistence tables are ready. Filtering and result-detail views come next.
+  </p>
+</section>
+
+<section class="panel">
+  {% if recent_runs %}
+  <ul class="history-list">
+    {% for run in recent_runs %}
+    <li>
+      <strong>{{ run.model_name or run.model_identifier }}</strong>
+      <span>{{ run.status.value }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p>No runs have been saved yet.</p>
+  {% endif %}
+</section>
+{% endblock %}

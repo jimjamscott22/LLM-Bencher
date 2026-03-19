@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "llm-bencher"
+version = "0.1.0"
+description = "Local-only FastAPI prompt lab for LM Studio and Ollama."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "GPL-3.0-or-later" }
+authors = [
+  { name = "Jamie" }
+]
+dependencies = [
+  "alembic>=1.15,<2.0",
+  "fastapi>=0.116,<1.0",
+  "jinja2>=3.1,<4.0",
+  "pydantic>=2.10,<3.0",
+  "sqlalchemy>=2.0.37,<3.0",
+  "uvicorn>=0.35,<1.0"
+]
+
+[project.scripts]
+llm-bencher = "llm_bencher.__main__:main"
+
+[dependency-groups]
+dev = [
+  "httpx>=0.28,<1.0",
+  "pytest>=9.0,<10.0"
+]
+
+[tool.setuptools.packages.find]
+include = ["llm_bencher*"]
+
+[tool.uv]
+package = true
+default-groups = ["dev"]
+
+[tool.pytest.ini_options]
+addopts = "-p no:cacheprovider"
+testpaths = ["tests"]
+
+

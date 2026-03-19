@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %} | Providers{% endblock %}
+{% block content %}
+<section class="section-header">
+  <div>
+    <p class="eyebrow">Provider Setup</p>
+    <h1>Configured local providers</h1>
+  </div>
+  <p class="lede">
+    Connection testing and model discovery will land next. For now, the app seeds
+    the expected provider records and local base URLs.
+  </p>
+</section>
+
+<section class="card-list">
+  {% for provider in providers %}
+  <article class="panel">
+    <div class="card-head">
+      <h2>{{ provider.name }}</h2>
+      <span class="badge {% if provider.is_enabled %}badge-ready{% else %}badge-muted{% endif %}">
+        {% if provider.is_enabled %}Enabled{% else %}Disabled{% endif %}
+      </span>
+    </div>
+    <dl class="meta">
+      <div>
+        <dt>Slug</dt>
+        <dd>{{ provider.slug }}</dd>
+      </div>
+      <div>
+        <dt>Kind</dt>
+        <dd>{{ provider.kind.value }}</dd>
+      </div>
+      <div>
+        <dt>Base URL</dt>
+        <dd>{{ provider.base_url }}</dd>
+      </div>
+    </dl>
+  </article>
+  {% endfor %}
+</section>
+{% endblock %}

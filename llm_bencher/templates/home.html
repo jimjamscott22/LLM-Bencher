@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %} | Dashboard{% endblock %}
+{% block content %}
+<section class="hero">
+  <div>
+    <p class="eyebrow">Backend Foundation</p>
+    <h1>Manual local testing for LM Studio and Ollama.</h1>
+    <p class="lede">
+      The app is wired for a localhost-only workflow with seeded providers,
+      SQLite persistence, and server-rendered pages ready for the next slices.
+    </p>
+  </div>
+  <div class="panel stat-grid">
+    <article>
+      <span class="stat-label">Providers</span>
+      <strong>{{ counts.providers }}</strong>
+    </article>
+    <article>
+      <span class="stat-label">Prompt Records</span>
+      <strong>{{ counts.prompts }}</strong>
+    </article>
+    <article>
+      <span class="stat-label">Saved Runs</span>
+      <strong>{{ counts.runs }}</strong>
+    </article>
+  </div>
+</section>
+
+<section class="panel section-grid">
+  <article>
+    <h2>What is ready</h2>
+    <ul>
+      <li>FastAPI app factory and startup lifecycle</li>
+      <li>SQLite models for providers, prompts, runs, and results</li>
+      <li>Default LM Studio and Ollama provider records</li>
+      <li>Templates and static assets for the core page shell</li>
+    </ul>
+  </article>
+  <article>
+    <h2>Next implementation slices</h2>
+    <ul>
+      <li>Provider adapters and connection checks</li>
+      <li>Prompt-suite import and export</li>
+      <li>Run execution forms and persistence</li>
+      <li>History filters and run detail views</li>
+    </ul>
+  </article>
+</section>
+{% endblock %}

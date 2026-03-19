@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %} | Run Prompt{% endblock %}
+{% block content %}
+<section class="section-header">
+  <div>
+    <p class="eyebrow">Run Workflow</p>
+    <h1>Execution flow scaffold</h1>
+  </div>
+  <p class="lede">
+    This page is the future home for provider selection, model refresh, prompt
+    choice, and one-off execution settings.
+  </p>
+</section>
+
+<section class="panel section-grid">
+  <article>
+    <h2>Available providers</h2>
+    <ul>
+      {% for provider in providers %}
+      <li>{{ provider.name }} · {{ provider.base_url }}</li>
+      {% endfor %}
+    </ul>
+  </article>
+  <article>
+    <h2>Prompt library</h2>
+    <p>{{ prompt_count }} prompt records available.</p>
+    <p>The run form will appear here in the next slice.</p>
+  </article>
+</section>
+{% endblock %}

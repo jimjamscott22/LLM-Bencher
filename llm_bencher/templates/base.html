@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ app_name }}{% block title %}{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/css/app.css') }}">
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Local Prompt Lab</p>
+          <a class="brand" href="{{ url_for('home') }}">{{ app_name }}</a>
+        </div>
+        <nav class="nav">
+          <a href="{{ url_for('providers_page') }}">Providers</a>
+          <a href="{{ url_for('prompts_page') }}">Prompt Library</a>
+          <a href="{{ url_for('new_run_page') }}">Run Prompt</a>
+          <a href="{{ url_for('history_page') }}">History</a>
+        </nav>
+      </header>
+
+      <main class="content">
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+  </body>
+</html>
