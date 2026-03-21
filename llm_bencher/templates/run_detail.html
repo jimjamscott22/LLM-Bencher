@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% block title %} | Run #{{ run.id }}{% endblock %}
+{% block content %}
+
+<section class="section-header">
+  <div>
+    <p class="eyebrow"><a href="{{ back_url }}" style="color:var(--accent);text-decoration:none;">History</a> &rsaquo; Run #{{ run.id }}</p>
+    <h1>
+      {% if run.status.value == "succeeded" %}
+        <span class="badge badge-ready" style="vertical-align:middle;margin-right:10px;">Succeeded</span>
+      {% elif run.status.value == "failed" %}
+        <span class="badge badge-error" style="vertical-align:middle;margin-right:10px;">Failed</span>
+      {% else %}
+        <span class="badge badge-muted" style="vertical-align:middle;margin-right:10px;">{{ run.status.value | capitalize }}</span>
+      {% endif %}
+      {{ run.model_name or run.model_identifier }}
+    </h1>
+  </div>
+</section>
+
+<div style="display:grid;grid-template-columns:2fr 1fr;gap:24px;align-items:start;">
+
+  {# ---- Main column ---- #}
+  <div style="display:grid;gap:20px;">
+
+    {% if run.result %}
+    <section class="panel">
+      <h2 style="margin:0 0 14px;font-size:1rem;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);">Output</h2>
+      <pre style="margin:0;white-space:pre-wrap;word-break:break-word;font-family:'Cascadia Mono','Consolas',monospace;font-size:0.88rem;line-height:1.65;background:var(--bg-accent);padding:16px;border-radius:12px;overflow-x:auto;">{{ run.result.raw_output_text }}</pre>
+    </section>
+    {% elif run.status.value == "failed" %}
+    <section class="panel">
+      <h2 style="margin:0 0 14px;font-size:1rem;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);">Error</h2>
+      <p style="margin:0;color:var(--accent);">{{ run.failure_message or "No error message recorded." }}</p>
+    </section>
+    {% endif %}
+
+    {% if run.system_prompt or run.user_prompt %}
+    <section class="panel">
+      <h2 style="margin:0 0 14px;font-size:1rem;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);">Prompt sent</h2>
+
+      {% if run.system_prompt %}
+      <details style="margin-bottom:14px;">
+        <summary style="cursor:pointer;font-size:0.85rem;color:var(--muted);user-select:none;">System prompt</summary>
+        <pre style="margin:8px 0 0;white-space:pre-wrap;word-break:break-word;font-family:'Cascadia Mono','Consolas',monospace;font-size:0.85rem;line-height:1.6;background:var(--bg-accent);padding:12px;border-radius:8px;">{{ run.system_prompt }}</pre>
+      </details>
+      {% endif %}
+
+      <div>
+        <p style="margin:0 0 6px;font-size:0.85rem;color:var(--muted);">User prompt</p>
+        <pre style="margin:0;white-space:pre-wrap;word-break:break-word;font-family:'Cascadia Mono','Consolas',monospace;font-size:0.85rem;line-height:1.6;background:var(--bg-accent);padding:12px;border-radius:8px;">{{ run.user_prompt }}</pre>
+      </div>
+    </section>
+    {% endif %}
+
+  </div>
+
+  {# ---- Sidebar ---- #}
+  <aside style="display:grid;gap:20px;">
+
+    <section class="panel">
+      <h2 style="margin:0 0 14px;font-size:1rem;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);">Details</h2>
+      <dl class="meta">
+        <div>
+          <dt>Provider</dt>
+          <dd>{{ run.provider.name if run.provider else "—" }}</dd>
+        </div>
+        <div>
+          <dt>Model</dt>
+          <dd>{{ run.model_name or run.model_identifier }}</dd>
+        </div>
+        {% if run.prompt %}
+        <div>
+          <dt>Prompt</dt>
+          <dd>
+            {% if run.prompt.suite %}
+            <span style="color:var(--muted);font-size:0.85rem;">{{ run.prompt.suite.name }} &rsaquo;</span><br>
+            {% endif %}
+            {{ run.prompt.title }}
+          </dd>
+        </div>
+        {% endif %}
+        <div>
+          <dt>Status</dt>
+          <dd>{{ run.status.value | capitalize }}</dd>
+        </div>
+        <div>
+          <dt>Created</dt>
+          <dd>{{ run.created_at.strftime("%Y-%m-%d %H:%M:%S") }}</dd>
+        </div>
+        {% if run.started_at and run.completed_at %}
+        <div>
+          <dt>Duration</dt>
+          <dd>
+            {% if run.result and run.result.latency_ms is not none %}
+              {{ run.result.latency_ms }} ms
+            {% else %}
+              {{ ((run.completed_at - run.started_at).total_seconds() * 1000) | int }} ms
+            {% endif %}
+          </dd>
+        </div>
+        {% endif %}
+        {% if run.temperature is not none %}
+        <div>
+          <dt>Temperature</dt>
+          <dd>{{ run.temperature }}</dd>
+        </div>
+        {% endif %}
+        {% if run.max_tokens is not none %}
+        <div>
+          <dt>Max tokens</dt>
+          <dd>{{ run.max_tokens }}</dd>
+        </div>
+        {% endif %}
+      </dl>
+    </section>
+
+    {% if run.result and (run.result.prompt_tokens is not none or run.result.completion_tokens is not none) %}
+    <section class="panel">
+      <h2 style="margin:0 0 14px;font-size:1rem;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);">Token usage</h2>
+      <dl class="meta">
+        {% if run.result.prompt_tokens is not none %}
+        <div><dt>Prompt</dt><dd>{{ run.result.prompt_tokens }}</dd></div>
+        {% endif %}
+        {% if run.result.completion_tokens is not none %}
+        <div><dt>Completion</dt><dd>{{ run.result.completion_tokens }}</dd></div>
+        {% endif %}
+        {% if run.result.total_tokens is not none %}
+        <div><dt>Total</dt><dd>{{ run.result.total_tokens }}</dd></div>
+        {% endif %}
+      </dl>
+    </section>
+    {% endif %}
+
+  </aside>
+
+</div>
+
+{% endblock %}
