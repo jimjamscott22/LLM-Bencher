@@ -5,7 +5,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
-from llm_bencher.models import PromptDefinition, Provider, ProviderModel, Run
+from llm_bencher.models import PromptDefinition, Provider, ProviderModel, PromptSuite, Run
 
 
 router = APIRouter()
@@ -64,8 +64,13 @@ def providers_page(request: Request) -> HTMLResponse:
 def prompts_page(request: Request) -> HTMLResponse:
     session_factory = request.app.state.session_factory
     with session_factory() as session:
-        prompt_count = session.scalar(select(func.count()).select_from(PromptDefinition)) or 0
-    return _render(request, "prompts.html", prompt_count=prompt_count)
+        suites = session.scalars(
+            select(PromptSuite)
+            .options(selectinload(PromptSuite.prompts))
+            .where(PromptSuite.is_active.is_(True))
+            .order_by(PromptSuite.name)
+        ).all()
+    return _render(request, "prompts.html", suites=suites)
 
 
 @router.get("/runs/new", response_class=HTMLResponse)
@@ -73,13 +78,13 @@ def new_run_page(request: Request) -> HTMLResponse:
     session_factory = request.app.state.session_factory
     with session_factory() as session:
         providers = session.scalars(select(Provider).order_by(Provider.name)).all()
-        prompt_count = session.scalar(select(func.count()).select_from(PromptDefinition)) or 0
-    return _render(
-        request,
-        "runs.html",
-        providers=providers,
-        prompt_count=prompt_count,
-    )
+        suites = session.scalars(
+            select(PromptSuite)
+            .options(selectinload(PromptSuite.prompts))
+            .where(PromptSuite.is_active.is_(True))
+            .order_by(PromptSuite.name)
+        ).all()
+    return _render(request, "runs.html", providers=providers, suites=suites)
 
 
 @router.get("/history", response_class=HTMLResponse)

@@ -54,7 +54,7 @@ class Settings:
             app_name=os.getenv("LLM_BENCHER_APP_NAME", "LLM Bencher"),
             environment=os.getenv("LLM_BENCHER_ENV", "development"),
             host=os.getenv("LLM_BENCHER_HOST", "127.0.0.1"),
-            port=int(os.getenv("LLM_BENCHER_PORT", "8000")),
+            port=int(os.getenv("LLM_BENCHER_PORT", "8099")),
             sqlite_echo=_env_flag("LLM_BENCHER_SQLITE_ECHO", False),
             provider_timeout_seconds=_env_float("LLM_BENCHER_PROVIDER_TIMEOUT", 30.0),
             data_dir=data_dir,

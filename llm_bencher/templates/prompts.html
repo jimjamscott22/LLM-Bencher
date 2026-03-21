@@ -4,17 +4,140 @@
 <section class="section-header">
   <div>
     <p class="eyebrow">Prompt Library</p>
-    <h1>Portable suites will plug in here.</h1>
+    <h1>Prompt suites</h1>
   </div>
   <p class="lede">
-    The database and file-schema types are in place. Import, sync, and export
-    routes are the next step.
+    Import curated prompt suites from JSON files. Each suite groups related
+    prompts together for easy selection when running tests.
   </p>
 </section>
 
+{% if suites %}
 <section class="panel">
-  <h2>Current state</h2>
-  <p>No prompt suites have been imported yet.</p>
-  <p><strong>{{ prompt_count }}</strong> prompt records are currently stored.</p>
+  <table style="width:100%;border-collapse:collapse;">
+    <thead>
+      <tr style="border-bottom:1px solid var(--border);text-align:left;">
+        <th style="padding:10px 12px;font-size:0.8rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);">Suite</th>
+        <th style="padding:10px 12px;font-size:0.8rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);">Version</th>
+        <th style="padding:10px 12px;font-size:0.8rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);">Prompts</th>
+        <th style="padding:10px 12px;font-size:0.8rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);">Imported</th>
+        <th style="padding:10px 12px;font-size:0.8rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for suite in suites %}
+      <tr id="suite-row-{{ suite.id }}" style="border-bottom:1px solid var(--border);">
+        <td style="padding:12px;">
+          <strong style="font-size:1rem;">{{ suite.name }}</strong>
+          {% if suite.description %}
+          <p style="margin:2px 0 0;color:var(--muted);font-size:0.85rem;">{{ suite.description }}</p>
+          {% endif %}
+          <code style="font-size:0.78rem;color:var(--muted);">{{ suite.slug }}</code>
+        </td>
+        <td style="padding:12px;font-family:'Cascadia Mono','Consolas',monospace;font-size:0.9rem;">
+          {{ suite.version or "—" }}
+        </td>
+        <td style="padding:12px;">{{ suite.prompts | length }}</td>
+        <td style="padding:12px;color:var(--muted);font-size:0.85rem;">
+          {% if suite.imported_at %}{{ suite.imported_at.strftime("%Y-%m-%d %H:%M") }}{% else %}—{% endif %}
+        </td>
+        <td style="padding:12px;white-space:nowrap;">
+          <a
+            href="/api/suites/{{ suite.id }}/export"
+            style="font-size:0.85rem;color:var(--accent);text-decoration:none;margin-right:12px;"
+          >Export</a>
+          <button
+            class="delete-suite-btn"
+            data-suite-id="{{ suite.id }}"
+            style="font-size:0.85rem;color:var(--muted);background:none;border:none;cursor:pointer;padding:0;"
+          >Delete</button>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
 </section>
+{% else %}
+<section class="panel" style="text-align:center;padding:48px 24px;">
+  <p style="color:var(--muted);font-size:1.05rem;margin:0 0 8px;">No suites imported yet.</p>
+  <p style="color:var(--muted);font-size:0.9rem;margin:0;">Use the form below to import your first suite.</p>
+</section>
+{% endif %}
+
+<section class="panel">
+  <h2 style="margin:0 0 16px;">Import a suite</h2>
+  <p style="color:var(--muted);font-size:0.9rem;margin:0 0 20px;">
+    Upload a <code>.json</code> file. Existing suites with the same slug will be updated in place.
+  </p>
+
+  <form id="import-form" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+    <input
+      id="import-file"
+      type="file"
+      accept=".json"
+      required
+      style="flex:1;min-width:220px;padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--surface-strong);color:var(--text);font-size:0.9rem;"
+    >
+    <button
+      type="submit"
+      style="padding:8px 20px;border:1px solid var(--border);border-radius:8px;background:var(--surface-strong);color:var(--text);font-size:0.9rem;cursor:pointer;"
+    >Import</button>
+  </form>
+
+  <p id="import-status" style="margin:12px 0 0;font-size:0.9rem;display:none;"></p>
+</section>
+
+<script>
+document.getElementById("import-form").addEventListener("submit", async function(e) {
+  e.preventDefault();
+  var fileInput = document.getElementById("import-file");
+  var statusEl = document.getElementById("import-status");
+  var file = fileInput.files[0];
+  if (!file) return;
+
+  var formData = new FormData();
+  formData.append("file", file);
+
+  statusEl.style.display = "block";
+  statusEl.style.color = "var(--muted)";
+  statusEl.textContent = "Importing\u2026";
+
+  try {
+    var resp = await fetch("/api/suites/import", {method: "POST", body: formData});
+    var data = await resp.json();
+    if (!resp.ok) {
+      statusEl.style.color = "var(--accent)";
+      statusEl.textContent = "Error: " + (data.detail || resp.statusText);
+      return;
+    }
+    statusEl.style.color = "var(--ready)";
+    var verb = data.action === "created" ? "Imported" : "Updated";
+    statusEl.textContent = verb + " \u201c" + data.name + "\u201d \u2014 " + data.prompt_count + " prompt(s).";
+    fileInput.value = "";
+    setTimeout(function() { location.reload(); }, 900);
+  } catch (err) {
+    statusEl.style.color = "var(--accent)";
+    statusEl.textContent = "Request failed: " + err.message;
+  }
+});
+
+document.querySelectorAll(".delete-suite-btn").forEach(function(btn) {
+  btn.addEventListener("click", async function() {
+    var suiteId = btn.dataset.suiteId;
+    if (!confirm("Delete this suite? This cannot be undone.")) return;
+    try {
+      var resp = await fetch("/api/suites/" + suiteId, {method: "DELETE"});
+      if (resp.ok) {
+        var row = document.getElementById("suite-row-" + suiteId);
+        if (row) row.remove();
+      } else {
+        var data = await resp.json();
+        alert("Error: " + (data.detail || resp.statusText));
+      }
+    } catch (err) {
+      alert("Request failed: " + err.message);
+    }
+  });
+});
+</script>
 {% endblock %}

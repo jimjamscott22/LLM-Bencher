@@ -4,27 +4,300 @@
 <section class="section-header">
   <div>
     <p class="eyebrow">Run Workflow</p>
-    <h1>Execution flow scaffold</h1>
+    <h1>Run a prompt</h1>
   </div>
   <p class="lede">
-    This page is the future home for provider selection, model refresh, prompt
-    choice, and one-off execution settings.
+    Choose a provider and model, write or load a prompt, then run it. Results
+    are saved to history automatically.
   </p>
 </section>
 
-<section class="panel section-grid">
-  <article>
-    <h2>Available providers</h2>
-    <ul>
-      {% for provider in providers %}
-      <li>{{ provider.name }} · {{ provider.base_url }}</li>
-      {% endfor %}
-    </ul>
-  </article>
-  <article>
-    <h2>Prompt library</h2>
-    <p>{{ prompt_count }} prompt records available.</p>
-    <p>The run form will appear here in the next slice.</p>
-  </article>
-</section>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start;">
+
+  {# ---- Left column: form ---- #}
+  <section class="panel">
+    <form id="run-form">
+
+      <fieldset style="border:none;padding:0;margin:0 0 20px;">
+        <legend style="font-size:0.8rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-bottom:10px;">Provider &amp; Model</legend>
+
+        <label style="display:block;margin-bottom:10px;">
+          <span style="display:block;font-size:0.85rem;color:var(--muted);margin-bottom:4px;">Provider</span>
+          <select id="provider-select" name="provider_id" required style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface-strong);color:var(--text);font-size:0.9rem;">
+            <option value="">— choose provider —</option>
+            {% for p in providers %}
+            <option value="{{ p.id }}"
+              data-connected="{{ 'true' if p.is_connected else 'false' }}"
+              {% if not p.is_enabled %}disabled{% endif %}>
+              {{ p.name }}{% if not p.is_connected %} (not checked){% endif %}
+            </option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <label style="display:block;">
+          <span style="display:block;font-size:0.85rem;color:var(--muted);margin-bottom:4px;">Model</span>
+          <div style="display:flex;gap:8px;">
+            <select id="model-select" name="model_external_id" required style="flex:1;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface-strong);color:var(--text);font-size:0.9rem;">
+              <option value="">— choose provider first —</option>
+            </select>
+            <button type="button" id="refresh-models-btn"
+              style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface-strong);color:var(--muted);font-size:0.85rem;cursor:pointer;white-space:nowrap;"
+            >Refresh</button>
+          </div>
+          <p id="model-status" style="margin:4px 0 0;font-size:0.8rem;color:var(--muted);display:none;"></p>
+        </label>
+      </fieldset>
+
+      {% if suites %}
+      <fieldset style="border:none;padding:0;margin:0 0 20px;">
+        <legend style="font-size:0.8rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-bottom:10px;">Load from library <span style="font-weight:400;text-transform:none;letter-spacing:0;">(optional)</span></legend>
+
+        <label style="display:block;margin-bottom:10px;">
+          <span style="display:block;font-size:0.85rem;color:var(--muted);margin-bottom:4px;">Suite</span>
+          <select id="suite-select" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface-strong);color:var(--text);font-size:0.9rem;">
+            <option value="">— choose suite —</option>
+            {% for suite in suites %}
+            <option value="{{ suite.id }}">{{ suite.name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <label style="display:block;">
+          <span style="display:block;font-size:0.85rem;color:var(--muted);margin-bottom:4px;">Prompt</span>
+          <select id="prompt-select" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface-strong);color:var(--text);font-size:0.9rem;">
+            <option value="">— choose suite first —</option>
+          </select>
+        </label>
+      </fieldset>
+      {% endif %}
+
+      <fieldset style="border:none;padding:0;margin:0 0 20px;">
+        <legend style="font-size:0.8rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-bottom:10px;">Prompt</legend>
+
+        <label style="display:block;margin-bottom:10px;">
+          <span style="display:block;font-size:0.85rem;color:var(--muted);margin-bottom:4px;">System prompt <span style="font-weight:400;">(optional)</span></span>
+          <textarea id="system-prompt" name="system_prompt" rows="3"
+            placeholder="e.g. You are a helpful assistant."
+            style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface-strong);color:var(--text);font-size:0.9rem;font-family:inherit;resize:vertical;box-sizing:border-box;"></textarea>
+        </label>
+
+        <label style="display:block;">
+          <span style="display:block;font-size:0.85rem;color:var(--muted);margin-bottom:4px;">User prompt</span>
+          <textarea id="user-prompt" name="user_prompt" rows="5" required
+            placeholder="Write your prompt here…"
+            style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface-strong);color:var(--text);font-size:0.9rem;font-family:inherit;resize:vertical;box-sizing:border-box;"></textarea>
+        </label>
+      </fieldset>
+
+      <fieldset style="border:none;padding:0;margin:0 0 24px;">
+        <legend style="font-size:0.8rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-bottom:10px;">Settings</legend>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <label>
+            <span style="display:block;font-size:0.85rem;color:var(--muted);margin-bottom:4px;">Temperature</span>
+            <input id="temperature" name="temperature" type="number" min="0" max="2" step="0.05"
+              placeholder="default"
+              style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface-strong);color:var(--text);font-size:0.9rem;box-sizing:border-box;">
+          </label>
+          <label>
+            <span style="display:block;font-size:0.85rem;color:var(--muted);margin-bottom:4px;">Max tokens</span>
+            <input id="max-tokens" name="max_tokens" type="number" min="1" step="1"
+              placeholder="default"
+              style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface-strong);color:var(--text);font-size:0.9rem;box-sizing:border-box;">
+          </label>
+        </div>
+      </fieldset>
+
+      <button type="submit" id="run-btn"
+        style="width:100%;padding:10px 20px;border:1px solid var(--border);border-radius:8px;background:var(--surface-strong);color:var(--text);font-size:1rem;cursor:pointer;font-weight:600;">
+        Run prompt
+      </button>
+    </form>
+  </section>
+
+  {# ---- Right column: result ---- #}
+  <section id="result-panel" class="panel" style="display:none;">
+    <div id="result-running" style="display:none;color:var(--muted);font-size:0.95rem;">Running\u2026</div>
+
+    <div id="result-success" style="display:none;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+        <span class="badge badge-ready">Succeeded</span>
+        <span id="result-meta" style="font-size:0.82rem;color:var(--muted);"></span>
+      </div>
+      <pre id="result-output"
+        style="margin:0;white-space:pre-wrap;word-break:break-word;font-family:'Cascadia Mono','Consolas',monospace;font-size:0.88rem;line-height:1.6;background:var(--bg-accent);padding:16px;border-radius:12px;overflow-x:auto;"></pre>
+    </div>
+
+    <div id="result-failure" style="display:none;">
+      <span class="badge badge-error" style="margin-bottom:12px;display:inline-block;">Failed</span>
+      <p id="result-error" style="margin:0;color:var(--accent);font-size:0.9rem;"></p>
+    </div>
+  </section>
+
+</div>
+
+{# Suite prompt data embedded for JS — avoids extra round-trips on prompt select #}
+<script id="suites-data" type="application/json">
+{{ suites | map(attribute='id') | list | tojson }}
+</script>
+
+<script>
+// Provider → model select
+var providerSelect = document.getElementById("provider-select");
+var modelSelect = document.getElementById("model-select");
+var modelStatus = document.getElementById("model-status");
+var refreshBtn = document.getElementById("refresh-models-btn");
+
+async function loadModels(providerId, live) {
+  if (!providerId) return;
+  var url = live
+    ? "/api/providers/" + providerId + "/check"
+    : "/api/providers/" + providerId + "/models";
+  var method = live ? "POST" : "GET";
+
+  modelStatus.style.display = "block";
+  modelStatus.textContent = live ? "Checking connection\u2026" : "Loading models\u2026";
+
+  try {
+    var resp = await fetch(url, {method: method});
+    var data = await resp.json();
+    var models = live ? data.models : data;
+    var available = models.filter(function(m) { return m.is_available; });
+
+    modelSelect.innerHTML = available.length
+      ? available.map(function(m) {
+          return "<option value='" + m.external_id + "'>" + m.display_name + "</option>";
+        }).join("")
+      : "<option value=''>No models available</option>";
+
+    modelStatus.textContent = live && !data.is_connected
+      ? "Could not connect: " + (data.detail || "unknown error")
+      : available.length + " model(s) available";
+  } catch (err) {
+    modelStatus.textContent = "Error: " + err.message;
+  }
+}
+
+providerSelect.addEventListener("change", function() {
+  var id = providerSelect.value;
+  if (!id) {
+    modelSelect.innerHTML = "<option value=''>— choose provider first —</option>";
+    modelStatus.style.display = "none";
+    return;
+  }
+  loadModels(id, false);
+});
+
+refreshBtn.addEventListener("click", function() {
+  var id = providerSelect.value;
+  if (id) loadModels(id, true);
+});
+
+{% if suites %}
+// Suite → prompt select
+var suiteSelect = document.getElementById("suite-select");
+var promptSelect = document.getElementById("prompt-select");
+
+// Suite data keyed by id for quick lookup
+var suitePrompts = {};
+{% for suite in suites %}
+suitePrompts[{{ suite.id }}] = [
+  {% for p in suite.prompts %}
+  {id: {{ p.id }}, slug: "{{ p.slug }}", title: {{ p.title | tojson }}},
+  {% endfor %}
+];
+{% endfor %}
+
+suiteSelect.addEventListener("change", function() {
+  var suiteId = parseInt(suiteSelect.value);
+  promptSelect.innerHTML = "<option value=''>— choose prompt —</option>";
+  if (!suiteId || !suitePrompts[suiteId]) return;
+  suitePrompts[suiteId].forEach(function(p) {
+    var opt = document.createElement("option");
+    opt.value = p.id;
+    opt.textContent = p.title;
+    promptSelect.appendChild(opt);
+  });
+});
+
+promptSelect.addEventListener("change", async function() {
+  var promptId = promptSelect.value;
+  if (!promptId) return;
+  try {
+    var resp = await fetch("/api/prompts/" + promptId);
+    var data = await resp.json();
+    document.getElementById("system-prompt").value = data.system_prompt || "";
+    document.getElementById("user-prompt").value = data.user_prompt_template || "";
+    if (data.default_temperature != null) document.getElementById("temperature").value = data.default_temperature;
+    if (data.default_max_tokens != null) document.getElementById("max-tokens").value = data.default_max_tokens;
+    promptSelect.dataset.selectedId = promptId;
+  } catch (err) {
+    console.error("Failed to load prompt:", err);
+  }
+});
+{% endif %}
+
+// Form submit
+document.getElementById("run-form").addEventListener("submit", async function(e) {
+  e.preventDefault();
+  var runBtn = document.getElementById("run-btn");
+  var resultPanel = document.getElementById("result-panel");
+  var runningEl = document.getElementById("result-running");
+  var successEl = document.getElementById("result-success");
+  var failureEl = document.getElementById("result-failure");
+
+  runBtn.disabled = true;
+  runBtn.textContent = "Running\u2026";
+  resultPanel.style.display = "block";
+  runningEl.style.display = "block";
+  successEl.style.display = "none";
+  failureEl.style.display = "none";
+
+  var temperature = document.getElementById("temperature").value;
+  var maxTokens = document.getElementById("max-tokens").value;
+
+  var body = {
+    provider_id: parseInt(document.getElementById("provider-select").value),
+    model_external_id: document.getElementById("model-select").value,
+    system_prompt: document.getElementById("system-prompt").value || null,
+    user_prompt: document.getElementById("user-prompt").value,
+    temperature: temperature ? parseFloat(temperature) : null,
+    max_tokens: maxTokens ? parseInt(maxTokens) : null,
+  };
+
+  {% if suites %}
+  var selectedPromptId = promptSelect.dataset.selectedId;
+  if (selectedPromptId) body.prompt_id = parseInt(selectedPromptId);
+  {% endif %}
+
+  try {
+    var resp = await fetch("/api/runs", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(body),
+    });
+    var data = await resp.json();
+
+    runningEl.style.display = "none";
+    if (data.status === "succeeded") {
+      successEl.style.display = "block";
+      document.getElementById("result-output").textContent = data.output_text || "";
+      var parts = [];
+      if (data.latency_ms != null) parts.push(data.latency_ms + " ms");
+      if (data.total_tokens != null) parts.push(data.total_tokens + " tokens");
+      document.getElementById("result-meta").textContent = parts.join(" \u00b7 ");
+    } else {
+      failureEl.style.display = "block";
+      document.getElementById("result-error").textContent = data.failure_message || "Unknown error";
+    }
+  } catch (err) {
+    runningEl.style.display = "none";
+    failureEl.style.display = "block";
+    document.getElementById("result-error").textContent = "Request failed: " + err.message;
+  } finally {
+    runBtn.disabled = false;
+    runBtn.textContent = "Run prompt";
+  }
+});
+</script>
 {% endblock %}
