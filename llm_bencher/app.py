@@ -9,6 +9,7 @@ from fastapi.templating import Jinja2Templates
 from llm_bencher.bootstrap import seed_default_providers
 from llm_bencher.config import Settings, get_settings
 from llm_bencher.database import get_session_factory, initialize_database, session_scope
+from llm_bencher.web.api import router as api_router
 from llm_bencher.web.routes import router as web_router
 
 
@@ -44,6 +45,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
 
     app.mount("/static", StaticFiles(directory=str(settings.static_dir)), name="static")
+    app.include_router(api_router)
     app.include_router(web_router)
     return app
 

@@ -187,6 +187,11 @@ li + li {
   color: var(--muted);
 }
 
+.badge-error {
+  background: rgba(157, 77, 47, 0.12);
+  color: var(--accent);
+}
+
 .meta {
   display: grid;
   gap: 14px;

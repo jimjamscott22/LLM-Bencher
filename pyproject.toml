@@ -15,6 +15,7 @@ authors = [
 dependencies = [
   "alembic>=1.15,<2.0",
   "fastapi>=0.116,<1.0",
+  "httpx>=0.28,<1.0",
   "jinja2>=3.1,<4.0",
   "pydantic>=2.10,<3.0",
   "sqlalchemy>=2.0.37,<3.0",
@@ -26,7 +27,6 @@ llm-bencher = "llm_bencher.__main__:main"
 
 [dependency-groups]
 dev = [
-  "httpx>=0.28,<1.0",
   "pytest>=9.0,<10.0"
 ]
 

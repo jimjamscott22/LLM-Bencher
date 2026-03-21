@@ -3,9 +3,9 @@ from __future__ import annotations
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
-from llm_bencher.models import PromptDefinition, Provider, Run
+from llm_bencher.models import PromptDefinition, Provider, ProviderModel, Run
 
 
 router = APIRouter()
@@ -52,7 +52,11 @@ def health(request: Request) -> JSONResponse:
 def providers_page(request: Request) -> HTMLResponse:
     session_factory = request.app.state.session_factory
     with session_factory() as session:
-        providers = session.scalars(select(Provider).order_by(Provider.name)).all()
+        providers = session.scalars(
+            select(Provider)
+            .options(selectinload(Provider.models))
+            .order_by(Provider.name)
+        ).all()
     return _render(request, "providers.html", providers=providers)
 
 

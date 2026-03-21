@@ -7,35 +7,121 @@
     <h1>Configured local providers</h1>
   </div>
   <p class="lede">
-    Connection testing and model discovery will land next. For now, the app seeds
-    the expected provider records and local base URLs.
+    Check the connection to each provider and discover the models currently
+    loaded. Make sure LM Studio or Ollama is running before checking.
   </p>
 </section>
 
 <section class="card-list">
   {% for provider in providers %}
-  <article class="panel">
+  <article class="panel" id="provider-{{ provider.id }}">
     <div class="card-head">
       <h2>{{ provider.name }}</h2>
       <span class="badge {% if provider.is_enabled %}badge-ready{% else %}badge-muted{% endif %}">
         {% if provider.is_enabled %}Enabled{% else %}Disabled{% endif %}
       </span>
     </div>
+
     <dl class="meta">
       <div>
-        <dt>Slug</dt>
-        <dd>{{ provider.slug }}</dd>
+        <dt>Base URL</dt>
+        <dd>{{ provider.base_url }}</dd>
       </div>
       <div>
         <dt>Kind</dt>
         <dd>{{ provider.kind.value }}</dd>
       </div>
       <div>
-        <dt>Base URL</dt>
-        <dd>{{ provider.base_url }}</dd>
+        <dt>Connection</dt>
+        <dd id="conn-status-{{ provider.id }}">
+          {% if provider.last_health_check_at %}
+            <span class="badge {% if provider.is_connected %}badge-ready{% else %}badge-error{% endif %}">
+              {% if provider.is_connected %}Connected{% else %}Unreachable{% endif %}
+            </span>
+            <span style="color:var(--muted);font-size:0.82rem;margin-left:8px;">
+              checked {{ provider.last_health_check_at.strftime("%H:%M:%S") }}
+            </span>
+            {% if provider.last_error %}
+            <p style="margin:6px 0 0;color:var(--accent);font-size:0.85rem;">{{ provider.last_error }}</p>
+            {% endif %}
+          {% else %}
+            <span class="badge badge-muted">Not checked</span>
+          {% endif %}
+        </dd>
       </div>
     </dl>
+
+    <div id="models-{{ provider.id }}" style="margin-top:16px;">
+      {% set available_models = provider.models | selectattr("is_available") | list %}
+      {% if available_models %}
+      <p class="stat-label" style="margin:0 0 8px;">Available models</p>
+      <ul style="margin:0;padding-left:18px;">
+        {% for m in available_models %}
+        <li style="font-family:'Cascadia Mono','Consolas',monospace;font-size:0.9rem;">{{ m.display_name }}</li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+    </div>
+
+    <div style="margin-top:20px;">
+      <button
+        class="check-btn"
+        data-provider-id="{{ provider.id }}"
+        style="padding:8px 18px;border:1px solid var(--border);border-radius:8px;background:var(--surface-strong);color:var(--text);font-size:0.9rem;cursor:pointer;"
+      >Check connection</button>
+    </div>
   </article>
   {% endfor %}
 </section>
+
+<script>
+document.querySelectorAll(".check-btn").forEach(function(btn) {
+  btn.addEventListener("click", async function() {
+    var providerId = btn.dataset.providerId;
+    btn.disabled = true;
+    btn.textContent = "Checking…";
+
+    try {
+      var resp = await fetch("/api/providers/" + providerId + "/check", {method: "POST"});
+      var data = await resp.json();
+
+      // Update connection status
+      var statusEl = document.getElementById("conn-status-" + providerId);
+      var checkedAt = data.checked_at ? new Date(data.checked_at).toLocaleTimeString() : "";
+      var badgeClass = data.is_connected ? "badge-ready" : "badge-error";
+      var badgeLabel = data.is_connected ? "Connected" : "Unreachable";
+      var errorHtml = (data.detail && !data.is_connected)
+        ? "<p style='margin:6px 0 0;color:var(--accent);font-size:0.85rem;'>" + data.detail + "</p>"
+        : "";
+      statusEl.innerHTML =
+        "<span class='badge " + badgeClass + "'>" + badgeLabel + "</span>" +
+        "<span style='color:var(--muted);font-size:0.82rem;margin-left:8px;'>checked " + checkedAt + "</span>" +
+        errorHtml;
+
+      // Update model list
+      var modelsEl = document.getElementById("models-" + providerId);
+      if (data.models && data.models.length > 0) {
+        var available = data.models.filter(function(m) { return m.is_available; });
+        if (available.length > 0) {
+          var items = available.map(function(m) {
+            return "<li style='font-family:\"Cascadia Mono\",\"Consolas\",monospace;font-size:0.9rem;'>" + m.display_name + "</li>";
+          }).join("");
+          modelsEl.innerHTML = "<p class='stat-label' style='margin:0 0 8px;'>Available models</p><ul style='margin:0;padding-left:18px;'>" + items + "</ul>";
+        } else {
+          modelsEl.innerHTML = "<p style='color:var(--muted);font-size:0.9rem;'>No models available.</p>";
+        }
+      } else {
+        modelsEl.innerHTML = "";
+      }
+    } catch (err) {
+      var statusEl = document.getElementById("conn-status-" + providerId);
+      statusEl.innerHTML = "<span class='badge badge-error'>Error</span>" +
+        "<p style='margin:6px 0 0;color:var(--accent);font-size:0.85rem;'>Request failed: " + err.message + "</p>";
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Check connection";
+    }
+  });
+});
+</script>
 {% endblock %}
