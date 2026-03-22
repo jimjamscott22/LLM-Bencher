@@ -1,0 +1,21 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="run LLM-Bencher" type="UvRunConfigurationType" factoryName="UvRunConfigurationType">
+    <option name="args">
+      <list />
+    </option>
+    <option name="checkSync" value="true" />
+    <option name="env">
+      <map />
+    </option>
+    <option name="runType" value="MODULE" />
+    <option name="scriptOrModule" value="llm_bencher" />
+    <option name="uvArgs">
+      <list>
+        <option value="uv" />
+        <option value="run" />
+      </list>
+    </option>
+    <option name="uvSdkKey" value="uv (LLM-Bencher)" />
+    <method v="2" />
+  </configuration>
+</component>
