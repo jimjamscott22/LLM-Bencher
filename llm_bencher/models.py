@@ -174,6 +174,11 @@ class Run(TimestampMixin, Base):
         cascade="all, delete-orphan",
         uselist=False,
     )
+    rating: Mapped["RunRating | None"] = relationship(
+        back_populates="run",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
 
 
 class RunResult(Base):
@@ -195,4 +200,15 @@ class RunResult(Base):
     )
 
     run: Mapped["Run"] = relationship(back_populates="result")
+
+
+class RunRating(TimestampMixin, Base):
+    __tablename__ = "run_ratings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    run_id: Mapped[int] = mapped_column(ForeignKey("runs.id"), unique=True, nullable=False)
+    score: Mapped[int] = mapped_column(Integer, nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text)
+
+    run: Mapped["Run"] = relationship(back_populates="rating")
 

@@ -118,6 +118,11 @@
           {% else %}
             <span class="badge badge-muted">{{ run.status.value | capitalize }}</span>
           {% endif %}
+          {% if run.rating %}
+            <span class="rating-indicator" title="Rated {{ run.rating.score }}/5">
+              &#9733; {{ run.rating.score }}
+            </span>
+          {% endif %}
         </td>
         <td style="padding:12px 16px;font-size:0.85rem;color:var(--muted);white-space:nowrap;">
           {% if run.result and run.result.latency_ms is not none %}

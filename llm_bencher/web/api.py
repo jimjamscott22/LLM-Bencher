@@ -14,6 +14,7 @@ from llm_bencher.models import (
     PromptSuite,
     ProviderModel,
     Run,
+    RunRating,
     RunResult as RunResultModel,
     RunStatus,
 )
@@ -400,6 +401,96 @@ async def create_run(body: RunCreateBody, request: Request) -> JSONResponse:
         },
         status_code=201,
     )
+
+
+# ---------------------------------------------------------------------------
+# Run ratings
+# ---------------------------------------------------------------------------
+
+class RatingBody(BaseModel):
+    score: int
+    notes: str | None = None
+
+
+@router.post("/runs/{run_id}/rating")
+def upsert_rating(run_id: int, body: RatingBody, request: Request) -> JSONResponse:
+    """Create or update a rating for a run."""
+    if not (1 <= body.score <= 5):
+        raise HTTPException(status_code=422, detail="Score must be between 1 and 5")
+
+    session_factory = request.app.state.session_factory
+    with session_factory() as session:
+        run = session.get(Run, run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="Run not found")
+
+        rating = session.scalar(
+            select(RunRating).where(RunRating.run_id == run_id)
+        )
+        if rating:
+            rating.score = body.score
+            rating.notes = body.notes
+            action = "updated"
+        else:
+            rating = RunRating(run_id=run_id, score=body.score, notes=body.notes)
+            session.add(rating)
+            action = "created"
+
+        session.flush()
+        data = {
+            "run_id": run_id,
+            "score": rating.score,
+            "notes": rating.notes,
+            "created_at": rating.created_at.isoformat(),
+            "action": action,
+        }
+        session.commit()
+
+    return JSONResponse(data, status_code=201 if action == "created" else 200)
+
+
+@router.get("/runs/{run_id}/rating")
+def get_rating(run_id: int, request: Request) -> JSONResponse:
+    """Get the rating for a run."""
+    session_factory = request.app.state.session_factory
+    with session_factory() as session:
+        run = session.get(Run, run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="Run not found")
+
+        rating = session.scalar(
+            select(RunRating).where(RunRating.run_id == run_id)
+        )
+        if rating is None:
+            raise HTTPException(status_code=404, detail="No rating for this run")
+
+    return JSONResponse({
+        "run_id": run_id,
+        "score": rating.score,
+        "notes": rating.notes,
+        "created_at": rating.created_at.isoformat(),
+    })
+
+
+@router.delete("/runs/{run_id}/rating")
+def delete_rating(run_id: int, request: Request) -> JSONResponse:
+    """Delete the rating for a run."""
+    session_factory = request.app.state.session_factory
+    with session_factory() as session:
+        run = session.get(Run, run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="Run not found")
+
+        rating = session.scalar(
+            select(RunRating).where(RunRating.run_id == run_id)
+        )
+        if rating is None:
+            raise HTTPException(status_code=404, detail="No rating for this run")
+
+        session.delete(rating)
+        session.commit()
+
+    return JSONResponse({"run_id": run_id, "deleted": True})
 
 
 @router.get("/providers/{provider_id}/models")

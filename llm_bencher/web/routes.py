@@ -5,7 +5,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
-from llm_bencher.models import PromptDefinition, Provider, ProviderModel, PromptSuite, Run, RunStatus
+from llm_bencher.models import PromptDefinition, Provider, ProviderModel, PromptSuite, Run, RunRating, RunStatus
 
 
 router = APIRouter()
@@ -130,6 +130,7 @@ def history_page(request: Request) -> HTMLResponse:
                 selectinload(Run.provider_model),
                 selectinload(Run.prompt),
                 selectinload(Run.result),
+                selectinload(Run.rating),
             )
             .order_by(Run.created_at.desc())
             .offset((page - 1) * _PER_PAGE)
@@ -178,6 +179,7 @@ def run_detail_page(request: Request, run_id: int) -> HTMLResponse:
                 selectinload(Run.provider_model),
                 selectinload(Run.prompt).selectinload(PromptDefinition.suite),
                 selectinload(Run.result),
+                selectinload(Run.rating),
             )
             .where(Run.id == run_id)
         )
