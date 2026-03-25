@@ -134,6 +134,29 @@ async def check_provider(provider_id: int, request: Request) -> JSONResponse:
 
 
 # ---------------------------------------------------------------------------
+# Tags
+# ---------------------------------------------------------------------------
+
+@router.get("/tags")
+def list_tags(request: Request) -> JSONResponse:
+    """Return distinct tags across all active prompt definitions."""
+    session_factory = request.app.state.session_factory
+    with session_factory() as session:
+        prompts = session.scalars(
+            select(PromptDefinition)
+            .join(PromptSuite)
+            .where(PromptSuite.is_active.is_(True))
+        ).all()
+
+    tags: set[str] = set()
+    for p in prompts:
+        if p.tags:
+            tags.update(p.tags)
+
+    return JSONResponse(sorted(tags))
+
+
+# ---------------------------------------------------------------------------
 # Prompt suites
 # ---------------------------------------------------------------------------
 
