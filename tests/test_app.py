@@ -6,7 +6,7 @@ def test_home_page_renders(client) -> None:
 
     assert response.status_code == 200
     assert "LLM Bencher" in response.text
-    assert "Manual local testing for LM Studio and Ollama." in response.text
+    assert "Test, compare, and benchmark your local LLMs." in response.text
 
 
 def test_health_endpoint(client) -> None:

@@ -1,0 +1,189 @@
+{% extends "base.html" %}
+{% block title %} | Analytics{% endblock %}
+{% block content %}
+<section class="section-header">
+  <div>
+    <p class="eyebrow">Performance</p>
+    <h1>Analytics dashboard</h1>
+  </div>
+  <p class="lede">
+    Latency, token usage, and success rates across all models and runs.
+  </p>
+</section>
+
+{# ---- Summary cards ---- #}
+<section id="summary-cards" class="panel stat-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:16px;">
+  <article>
+    <span class="stat-label">Total runs</span>
+    <strong id="stat-total-runs">-</strong>
+  </article>
+  <article>
+    <span class="stat-label">Succeeded</span>
+    <strong id="stat-succeeded">-</strong>
+  </article>
+  <article>
+    <span class="stat-label">Failed</span>
+    <strong id="stat-failed">-</strong>
+  </article>
+  <article>
+    <span class="stat-label">Success rate</span>
+    <strong id="stat-success-rate">-</strong>
+  </article>
+  <article>
+    <span class="stat-label">Avg latency</span>
+    <strong id="stat-avg-latency">-</strong>
+  </article>
+  <article>
+    <span class="stat-label">Total tokens</span>
+    <strong id="stat-total-tokens">-</strong>
+  </article>
+</section>
+
+{# ---- Latency by model ---- #}
+<section class="panel">
+  <h3 style="margin:0 0 12px;font-size:0.95rem;">Latency by model (ms)</h3>
+  <div id="latency-table-container">
+    <p style="color:var(--muted);font-size:0.9rem;" id="latency-loading">Loading...</p>
+  </div>
+</section>
+
+{# ---- Token usage by model ---- #}
+<section class="panel">
+  <h3 style="margin:0 0 12px;font-size:0.95rem;">Token usage by model</h3>
+  <div id="tokens-table-container">
+    <p style="color:var(--muted);font-size:0.9rem;" id="tokens-loading">Loading...</p>
+  </div>
+</section>
+
+{# ---- Success rate by model ---- #}
+<section class="panel">
+  <h3 style="margin:0 0 12px;font-size:0.95rem;">Success rate by model</h3>
+  <div id="success-table-container">
+    <p style="color:var(--muted);font-size:0.9rem;" id="success-loading">Loading...</p>
+  </div>
+</section>
+
+{# ---- Latency trend ---- #}
+<section class="panel">
+  <h3 style="margin:0 0 12px;font-size:0.95rem;">Latency trend (last 30 days)</h3>
+  <div id="timeline-container">
+    <p style="color:var(--muted);font-size:0.9rem;" id="timeline-loading">Loading...</p>
+  </div>
+</section>
+
+<script>
+(async function() {
+  // Helper: build a simple HTML table.
+  function makeTable(headers, rows) {
+    if (rows.length === 0) return "<p style='color:var(--muted);font-size:0.9rem;'>No data yet.</p>";
+    var html = "<table style='width:100%;border-collapse:collapse;'><thead><tr>";
+    headers.forEach(function(h) {
+      html += "<th style='padding:8px 12px;text-align:left;font-size:0.78rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);border-bottom:1px solid var(--border);'>" + h + "</th>";
+    });
+    html += "</tr></thead><tbody>";
+    rows.forEach(function(row) {
+      html += "<tr style='border-bottom:1px solid var(--border);'>";
+      row.forEach(function(cell) {
+        html += "<td style='padding:8px 12px;font-size:0.88rem;'>" + cell + "</td>";
+      });
+      html += "</tr>";
+    });
+    html += "</tbody></table>";
+    return html;
+  }
+
+  // Helper: bar element.
+  function bar(value, maxVal, color) {
+    var pct = maxVal > 0 ? Math.round(value / maxVal * 100) : 0;
+    return "<div style='display:flex;align-items:center;gap:8px;'>" +
+      "<div style='flex:1;background:var(--border);border-radius:3px;height:10px;overflow:hidden;min-width:60px;'>" +
+      "<div style='width:" + pct + "%;height:100%;background:" + color + ";border-radius:3px;'></div>" +
+      "</div><span style='font-size:0.82rem;color:var(--muted);white-space:nowrap;'>" + value + "</span></div>";
+  }
+
+  // Summary
+  try {
+    var resp = await fetch("/api/analytics/summary");
+    var s = await resp.json();
+    document.getElementById("stat-total-runs").textContent = s.total_runs;
+    document.getElementById("stat-succeeded").textContent = s.succeeded;
+    document.getElementById("stat-failed").textContent = s.failed;
+    document.getElementById("stat-success-rate").textContent = s.success_rate + "%";
+    document.getElementById("stat-avg-latency").textContent = s.avg_latency_ms + " ms";
+    document.getElementById("stat-total-tokens").textContent = s.total_tokens.toLocaleString();
+  } catch(e) {}
+
+  // Latency by model
+  try {
+    var resp = await fetch("/api/analytics/latency");
+    var data = await resp.json();
+    var maxAvg = Math.max.apply(null, data.map(function(d) { return d.avg_ms; })) || 1;
+    var rows = data.map(function(d) {
+      return [
+        "<code style='font-size:0.85rem;'>" + d.model + "</code>",
+        bar(d.avg_ms, maxAvg, "var(--accent-soft)"),
+        d.min_ms + " ms",
+        d.max_ms + " ms",
+        d.count + " runs",
+      ];
+    });
+    document.getElementById("latency-table-container").innerHTML = makeTable(["Model", "Avg (ms)", "Min", "Max", "Runs"], rows);
+  } catch(e) {
+    document.getElementById("latency-loading").textContent = "Error loading data.";
+  }
+
+  // Token usage
+  try {
+    var resp = await fetch("/api/analytics/tokens");
+    var data = await resp.json();
+    var maxTok = Math.max.apply(null, data.map(function(d) { return d.total_tokens; })) || 1;
+    var rows = data.map(function(d) {
+      return [
+        "<code style='font-size:0.85rem;'>" + d.model + "</code>",
+        d.prompt_tokens.toLocaleString(),
+        d.completion_tokens.toLocaleString(),
+        bar(d.total_tokens, maxTok, "var(--ready)"),
+      ];
+    });
+    document.getElementById("tokens-table-container").innerHTML = makeTable(["Model", "Prompt", "Completion", "Total"], rows);
+  } catch(e) {
+    document.getElementById("tokens-loading").textContent = "Error loading data.";
+  }
+
+  // Success rate
+  try {
+    var resp = await fetch("/api/analytics/success-rate");
+    var data = await resp.json();
+    var rows = data.map(function(d) {
+      var color = d.rate >= 90 ? "var(--ready)" : d.rate >= 50 ? "var(--accent-soft)" : "var(--accent)";
+      return [
+        "<code style='font-size:0.85rem;'>" + d.model + "</code>",
+        d.succeeded,
+        d.failed,
+        bar(d.rate, 100, color) ,
+      ];
+    });
+    document.getElementById("success-table-container").innerHTML = makeTable(["Model", "Succeeded", "Failed", "Rate %"], rows);
+  } catch(e) {
+    document.getElementById("success-loading").textContent = "Error loading data.";
+  }
+
+  // Timeline
+  try {
+    var resp = await fetch("/api/analytics/timeline?period=30d");
+    var data = await resp.json();
+    if (data.length === 0) {
+      document.getElementById("timeline-container").innerHTML = "<p style='color:var(--muted);font-size:0.9rem;'>No data yet.</p>";
+    } else {
+      var maxLat = Math.max.apply(null, data.map(function(d) { return d.avg_latency_ms; })) || 1;
+      var rows = data.map(function(d) {
+        return [d.day, bar(d.avg_latency_ms, maxLat, "var(--accent-soft)"), d.count + " runs"];
+      });
+      document.getElementById("timeline-container").innerHTML = makeTable(["Day", "Avg latency", "Runs"], rows);
+    }
+  } catch(e) {
+    document.getElementById("timeline-loading").textContent = "Error loading data.";
+  }
+})();
+</script>
+{% endblock %}

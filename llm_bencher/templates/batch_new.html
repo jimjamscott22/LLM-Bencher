@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+{% block title %} | Batch Run{% endblock %}
+{% block content %}
+<section class="section-header">
+  <div>
+    <p class="eyebrow">Batch Execution</p>
+    <h1>Run prompts across models</h1>
+  </div>
+  <p class="lede">
+    Select one or more models and prompts, then execute them all at once.
+    Each (prompt, model) combination creates a separate run.
+  </p>
+</section>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;">
+  {# ---- Left: form ---- #}
+  <section class="panel">
+    <form id="batch-form">
+      <fieldset style="border:none;padding:0;margin:0 0 20px;">
+        <legend style="font-size:0.8rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-bottom:10px;">Batch name (optional)</legend>
+        <input id="batch-name" type="text" placeholder="Auto-generated if blank"
+          style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface-strong);color:var(--text);font-size:0.9rem;box-sizing:border-box;">
+      </fieldset>
+
+      <fieldset style="border:none;padding:0;margin:0 0 20px;">
+        <legend style="font-size:0.8rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-bottom:10px;">Models</legend>
+        {% for provider in providers %}
+        {% if provider.is_enabled and provider.models %}
+        <div style="margin-bottom:12px;">
+          <strong style="font-size:0.9rem;">{{ provider.name }}</strong>
+          {% for model in provider.models %}
+          {% if model.is_available %}
+          <label style="display:flex;align-items:center;gap:6px;padding:4px 0;font-size:0.88rem;">
+            <input type="checkbox" class="model-cb"
+              data-provider-id="{{ provider.id }}"
+              data-model-id="{{ model.external_id }}"
+              data-model-name="{{ model.display_name }}">
+            <code style="font-size:0.82rem;">{{ model.external_id }}</code>
+          </label>
+          {% endif %}
+          {% endfor %}
+        </div>
+        {% endif %}
+        {% endfor %}
+      </fieldset>
+
+      <fieldset style="border:none;padding:0;margin:0 0 20px;">
+        <legend style="font-size:0.8rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-bottom:10px;">Prompts</legend>
+        {% for suite in suites %}
+        <div style="margin-bottom:12px;">
+          <strong style="font-size:0.9rem;">{{ suite.name }}</strong>
+          {% for prompt in suite.prompts %}
+          <label style="display:flex;align-items:center;gap:6px;padding:4px 0;font-size:0.88rem;">
+            <input type="checkbox" class="prompt-cb" data-prompt-id="{{ prompt.id }}">
+            {{ prompt.title }}
+          </label>
+          {% endfor %}
+        </div>
+        {% endfor %}
+      </fieldset>
+
+      <fieldset style="border:none;padding:0;margin:0 0 24px;">
+        <legend style="font-size:0.8rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-bottom:10px;">Settings (optional)</legend>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <label>
+            <span style="display:block;font-size:0.85rem;color:var(--muted);margin-bottom:4px;">Temperature</span>
+            <input id="batch-temperature" type="number" min="0" max="2" step="0.05" placeholder="default"
+              style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface-strong);color:var(--text);font-size:0.9rem;box-sizing:border-box;">
+          </label>
+          <label>
+            <span style="display:block;font-size:0.85rem;color:var(--muted);margin-bottom:4px;">Max tokens</span>
+            <input id="batch-max-tokens" type="number" min="1" step="1" placeholder="default"
+              style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface-strong);color:var(--text);font-size:0.9rem;box-sizing:border-box;">
+          </label>
+        </div>
+      </fieldset>
+
+      <div id="batch-summary" style="font-size:0.85rem;color:var(--muted);margin-bottom:12px;">
+        Select models and prompts to see the run count.
+      </div>
+
+      <button type="submit" id="batch-btn"
+        style="width:100%;padding:10px 20px;border:1px solid var(--border);border-radius:8px;background:var(--surface-strong);color:var(--text);font-size:1rem;cursor:pointer;font-weight:600;">
+        Run batch
+      </button>
+    </form>
+  </section>
+
+  {# ---- Right: result ---- #}
+  <section id="batch-result" class="panel" style="display:none;">
+    <div id="batch-running" style="display:none;color:var(--muted);font-size:0.95rem;">Running batch&hellip;</div>
+    <div id="batch-done" style="display:none;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+        <span id="batch-status-badge" class="badge"></span>
+        <span id="batch-meta" style="font-size:0.82rem;color:var(--muted);"></span>
+      </div>
+      <a id="batch-detail-link" href="#" style="font-size:0.9rem;color:var(--accent);">View batch details &rarr;</a>
+    </div>
+    <div id="batch-error" style="display:none;">
+      <span class="badge badge-error" style="margin-bottom:12px;display:inline-block;">Error</span>
+      <p id="batch-error-msg" style="margin:0;color:var(--accent);font-size:0.9rem;"></p>
+    </div>
+  </section>
+</div>
+
+<script>
+function updateSummary() {
+  var models = document.querySelectorAll(".model-cb:checked").length;
+  var prompts = document.querySelectorAll(".prompt-cb:checked").length;
+  var total = models * prompts;
+  var el = document.getElementById("batch-summary");
+  if (total > 0) {
+    el.textContent = models + " model(s) \u00d7 " + prompts + " prompt(s) = " + total + " run(s)";
+  } else {
+    el.textContent = "Select models and prompts to see the run count.";
+  }
+}
+
+document.querySelectorAll(".model-cb, .prompt-cb").forEach(function(cb) {
+  cb.addEventListener("change", updateSummary);
+});
+
+document.getElementById("batch-form").addEventListener("submit", async function(e) {
+  e.preventDefault();
+  var btn = document.getElementById("batch-btn");
+  var resultPanel = document.getElementById("batch-result");
+  var runningEl = document.getElementById("batch-running");
+  var doneEl = document.getElementById("batch-done");
+  var errorEl = document.getElementById("batch-error");
+
+  var models = [];
+  document.querySelectorAll(".model-cb:checked").forEach(function(cb) {
+    models.push({
+      provider_id: parseInt(cb.dataset.providerId),
+      model_external_id: cb.dataset.modelId,
+      model_name: cb.dataset.modelName,
+    });
+  });
+
+  var promptIds = [];
+  document.querySelectorAll(".prompt-cb:checked").forEach(function(cb) {
+    promptIds.push(parseInt(cb.dataset.promptId));
+  });
+
+  if (models.length === 0 || promptIds.length === 0) {
+    alert("Select at least one model and one prompt.");
+    return;
+  }
+
+  var temperature = document.getElementById("batch-temperature").value;
+  var maxTokens = document.getElementById("batch-max-tokens").value;
+
+  var body = {
+    name: document.getElementById("batch-name").value || null,
+    models: models,
+    prompt_ids: promptIds,
+    temperature: temperature ? parseFloat(temperature) : null,
+    max_tokens: maxTokens ? parseInt(maxTokens) : null,
+  };
+
+  btn.disabled = true;
+  btn.textContent = "Running\u2026";
+  resultPanel.style.display = "block";
+  runningEl.style.display = "block";
+  doneEl.style.display = "none";
+  errorEl.style.display = "none";
+
+  try {
+    var resp = await fetch("/api/batches", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(body),
+    });
+    var data = await resp.json();
+
+    runningEl.style.display = "none";
+    if (resp.ok) {
+      doneEl.style.display = "block";
+      var badge = document.getElementById("batch-status-badge");
+      badge.textContent = data.status.charAt(0).toUpperCase() + data.status.slice(1);
+      badge.className = "badge " + (data.status === "completed" ? "badge-ready" : data.status === "failed" ? "badge-error" : "badge-muted");
+      document.getElementById("batch-meta").textContent =
+        data.completed_runs + " succeeded, " + data.failed_runs + " failed of " + data.total_runs + " total";
+      document.getElementById("batch-detail-link").href = "/batches/" + data.id;
+    } else {
+      errorEl.style.display = "block";
+      document.getElementById("batch-error-msg").textContent = data.detail || "Unknown error";
+    }
+  } catch (err) {
+    runningEl.style.display = "none";
+    errorEl.style.display = "block";
+    document.getElementById("batch-error-msg").textContent = "Request failed: " + err.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Run batch";
+  }
+});
+</script>
+{% endblock %}

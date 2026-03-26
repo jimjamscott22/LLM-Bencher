@@ -6,11 +6,16 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from llm_bencher.models import (
+    BatchRun,
+    BatchStatus,
+    Comparison,
+    ComparisonItem,
     Provider,
+    ProviderKind,
     PromptDefinition,
     PromptSuite,
     ProviderModel,
@@ -132,6 +137,137 @@ async def check_provider(provider_id: int, request: Request) -> JSONResponse:
             "models": models,
         }
     )
+
+
+# ---------------------------------------------------------------------------
+# Provider CRUD
+# ---------------------------------------------------------------------------
+
+def _provider_dict(p: Provider) -> dict:
+    return {
+        "id": p.id,
+        "slug": p.slug,
+        "name": p.name,
+        "kind": p.kind.value,
+        "base_url": p.base_url,
+        "has_api_key": bool(p.api_key),
+        "is_enabled": p.is_enabled,
+        "is_default": p.is_default,
+        "is_connected": p.is_connected,
+    }
+
+
+class ProviderCreateBody(BaseModel):
+    slug: str
+    name: str
+    kind: str
+    base_url: str
+    api_key: str | None = None
+    is_enabled: bool = True
+
+
+class ProviderUpdateBody(BaseModel):
+    name: str | None = None
+    base_url: str | None = None
+    api_key: str | None = None
+    is_enabled: bool | None = None
+
+
+@router.get("/providers")
+def list_providers(request: Request) -> JSONResponse:
+    """List all providers."""
+    session_factory = request.app.state.session_factory
+    with session_factory() as session:
+        providers = session.scalars(
+            select(Provider).order_by(Provider.name)
+        ).all()
+    return JSONResponse([_provider_dict(p) for p in providers])
+
+
+@router.post("/providers")
+def create_provider(body: ProviderCreateBody, request: Request) -> JSONResponse:
+    """Add a custom provider."""
+    try:
+        kind = ProviderKind(body.kind)
+    except ValueError:
+        valid = [k.value for k in ProviderKind]
+        raise HTTPException(status_code=422, detail=f"Invalid kind. Must be one of: {valid}")
+
+    session_factory = request.app.state.session_factory
+    with session_factory() as session:
+        existing = session.scalar(
+            select(Provider).where(Provider.slug == body.slug)
+        )
+        if existing:
+            raise HTTPException(status_code=409, detail=f"Provider with slug '{body.slug}' already exists")
+
+        provider = Provider(
+            slug=body.slug,
+            name=body.name,
+            kind=kind,
+            base_url=body.base_url,
+            api_key=body.api_key,
+            is_enabled=body.is_enabled,
+            is_default=False,
+        )
+        session.add(provider)
+        session.flush()
+        data = _provider_dict(provider)
+        session.commit()
+
+    return JSONResponse(data, status_code=201)
+
+
+@router.put("/providers/{provider_id}")
+def update_provider(provider_id: int, body: ProviderUpdateBody, request: Request) -> JSONResponse:
+    """Update an existing provider."""
+    session_factory = request.app.state.session_factory
+    with session_factory() as session:
+        provider = session.get(Provider, provider_id)
+        if provider is None:
+            raise HTTPException(status_code=404, detail="Provider not found")
+
+        if body.name is not None:
+            provider.name = body.name
+        if body.base_url is not None:
+            provider.base_url = body.base_url
+        if body.api_key is not None:
+            provider.api_key = body.api_key if body.api_key else None
+        if body.is_enabled is not None:
+            provider.is_enabled = body.is_enabled
+
+        session.flush()
+        data = _provider_dict(provider)
+        session.commit()
+
+    return JSONResponse(data)
+
+
+@router.delete("/providers/{provider_id}")
+def delete_provider(provider_id: int, request: Request) -> JSONResponse:
+    """Delete a custom (non-default) provider."""
+    session_factory = request.app.state.session_factory
+    with session_factory() as session:
+        provider = session.get(Provider, provider_id)
+        if provider is None:
+            raise HTTPException(status_code=404, detail="Provider not found")
+        if provider.is_default:
+            raise HTTPException(status_code=403, detail="Cannot delete a default provider")
+
+        # Check for existing runs.
+        run_count = session.scalar(
+            select(func.count()).select_from(Run).where(Run.provider_id == provider_id)
+        ) or 0
+        if run_count > 0:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Cannot delete provider with {run_count} existing run(s). Disable it instead.",
+            )
+
+        session.delete(provider)
+        session.commit()
+
+    return JSONResponse({"id": provider_id, "deleted": True})
 
 
 # ---------------------------------------------------------------------------
@@ -518,6 +654,323 @@ def delete_rating(run_id: int, request: Request) -> JSONResponse:
     return JSONResponse({"run_id": run_id, "deleted": True})
 
 
+# ---------------------------------------------------------------------------
+# Batch runs
+# ---------------------------------------------------------------------------
+
+class ModelTarget(BaseModel):
+    provider_id: int
+    model_external_id: str
+    model_name: str | None = None
+
+
+class BatchCreateBody(BaseModel):
+    name: str | None = None
+    models: list[ModelTarget]
+    prompt_ids: list[int]
+    system_prompt: str | None = None
+    temperature: float | None = None
+    max_tokens: int | None = None
+
+
+def _batch_dict(batch: BatchRun) -> dict:
+    return {
+        "id": batch.id,
+        "name": batch.name,
+        "status": batch.status.value,
+        "total_runs": batch.total_runs,
+        "completed_runs": batch.completed_runs,
+        "failed_runs": batch.failed_runs,
+        "started_at": batch.started_at.isoformat() if batch.started_at else None,
+        "completed_at": batch.completed_at.isoformat() if batch.completed_at else None,
+        "created_at": batch.created_at.isoformat(),
+    }
+
+
+@router.post("/batches")
+async def create_batch(body: BatchCreateBody, request: Request) -> JSONResponse:
+    """Create a batch and generate Run rows for each (prompt, model) combination,
+    then immediately execute all runs."""
+    if not body.models:
+        raise HTTPException(status_code=422, detail="At least one model is required")
+    if not body.prompt_ids:
+        raise HTTPException(status_code=422, detail="At least one prompt is required")
+
+    session_factory = request.app.state.session_factory
+    settings = request.app.state.settings
+
+    with session_factory() as session:
+        # Validate all prompt IDs exist.
+        for pid in body.prompt_ids:
+            prompt = session.get(PromptDefinition, pid)
+            if prompt is None:
+                raise HTTPException(status_code=404, detail=f"Prompt {pid} not found")
+
+        # Validate all providers exist.
+        for mt in body.models:
+            provider = session.get(Provider, mt.provider_id)
+            if provider is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Provider {mt.provider_id} not found",
+                )
+
+        batch_name = body.name or f"Batch {_utc_now().strftime('%Y-%m-%d %H:%M')}"
+        batch = BatchRun(
+            name=batch_name,
+            status=BatchStatus.PENDING,
+            total_runs=len(body.models) * len(body.prompt_ids),
+        )
+        session.add(batch)
+        session.flush()
+        batch_id = batch.id
+
+        # Create a Run for each (prompt, model) pair.
+        for pid in body.prompt_ids:
+            prompt = session.get(PromptDefinition, pid)
+            for mt in body.models:
+                pm = session.scalar(
+                    select(ProviderModel).where(
+                        ProviderModel.provider_id == mt.provider_id,
+                        ProviderModel.external_id == mt.model_external_id,
+                    )
+                )
+                session.add(
+                    Run(
+                        batch_id=batch_id,
+                        provider_id=mt.provider_id,
+                        provider_model_id=pm.id if pm else None,
+                        prompt_id=pid,
+                        status=RunStatus.PENDING,
+                        model_identifier=mt.model_external_id,
+                        model_name=mt.model_name or mt.model_external_id,
+                        system_prompt=prompt.system_prompt or body.system_prompt,
+                        user_prompt=prompt.user_prompt_template,
+                        temperature=body.temperature or prompt.default_temperature,
+                        max_tokens=body.max_tokens or prompt.default_max_tokens,
+                        template_inputs={},
+                    )
+                )
+        session.commit()
+
+    # Execute the batch asynchronously.
+    from llm_bencher.batch_runner import execute_batch
+    await execute_batch(batch_id, session_factory, settings)
+
+    # Return final state.
+    with session_factory() as session:
+        batch = session.get(BatchRun, batch_id)
+        return JSONResponse(_batch_dict(batch), status_code=201)
+
+
+@router.get("/batches")
+def list_batches(request: Request) -> JSONResponse:
+    """List all batches ordered by most recent first."""
+    session_factory = request.app.state.session_factory
+    with session_factory() as session:
+        batches = session.scalars(
+            select(BatchRun).order_by(BatchRun.created_at.desc())
+        ).all()
+    return JSONResponse([_batch_dict(b) for b in batches])
+
+
+@router.get("/batches/{batch_id}")
+def get_batch(batch_id: int, request: Request) -> JSONResponse:
+    """Return batch details with individual run summaries."""
+    session_factory = request.app.state.session_factory
+    with session_factory() as session:
+        batch = session.get(BatchRun, batch_id)
+        if batch is None:
+            raise HTTPException(status_code=404, detail="Batch not found")
+
+        runs = session.scalars(
+            select(Run)
+            .options(
+                selectinload(Run.provider),
+                selectinload(Run.prompt),
+                selectinload(Run.result),
+            )
+            .where(Run.batch_id == batch_id)
+            .order_by(Run.id)
+        ).all()
+
+        run_summaries = []
+        for r in runs:
+            run_summaries.append({
+                "run_id": r.id,
+                "provider_name": r.provider.name if r.provider else None,
+                "model_identifier": r.model_identifier,
+                "prompt_title": r.prompt.title if r.prompt else "ad-hoc",
+                "status": r.status.value,
+                "latency_ms": r.result.latency_ms if r.result else None,
+                "total_tokens": r.result.total_tokens if r.result else None,
+                "output_text": r.result.raw_output_text if r.result else None,
+                "failure_message": r.failure_message,
+            })
+
+    return JSONResponse({**_batch_dict(batch), "runs": run_summaries})
+
+
+# ---------------------------------------------------------------------------
+# Comparisons
+# ---------------------------------------------------------------------------
+
+class ComparisonCreateBody(BaseModel):
+    run_ids: list[int]
+    name: str | None = None
+
+
+def _run_comparison_dict(run: Run) -> dict:
+    return {
+        "run_id": run.id,
+        "provider_name": run.provider.name if run.provider else None,
+        "model_identifier": run.model_identifier,
+        "model_name": run.model_name,
+        "prompt_title": run.prompt.title if run.prompt else "ad-hoc",
+        "status": run.status.value,
+        "output_text": run.result.raw_output_text if run.result else None,
+        "latency_ms": run.result.latency_ms if run.result else None,
+        "total_tokens": run.result.total_tokens if run.result else None,
+        "failure_message": run.failure_message,
+    }
+
+
+@router.post("/comparisons")
+def create_comparison(body: ComparisonCreateBody, request: Request) -> JSONResponse:
+    """Create a comparison from selected run IDs."""
+    if len(body.run_ids) < 2:
+        raise HTTPException(status_code=422, detail="At least 2 runs required for comparison")
+
+    session_factory = request.app.state.session_factory
+    with session_factory() as session:
+        # Validate all run IDs.
+        for rid in body.run_ids:
+            run = session.get(Run, rid)
+            if run is None:
+                raise HTTPException(status_code=404, detail=f"Run {rid} not found")
+
+        # Determine a common prompt_id if all runs share one.
+        prompt_ids = set()
+        for rid in body.run_ids:
+            run = session.get(Run, rid)
+            if run.prompt_id:
+                prompt_ids.add(run.prompt_id)
+        common_prompt_id = prompt_ids.pop() if len(prompt_ids) == 1 else None
+
+        comparison = Comparison(
+            name=body.name,
+            prompt_id=common_prompt_id,
+        )
+        session.add(comparison)
+        session.flush()
+
+        for pos, rid in enumerate(body.run_ids):
+            session.add(ComparisonItem(
+                comparison_id=comparison.id,
+                run_id=rid,
+                position=pos,
+            ))
+
+        session.flush()
+        comp_id = comparison.id
+        session.commit()
+
+    return JSONResponse({"id": comp_id}, status_code=201)
+
+
+@router.post("/comparisons/from-batch/{batch_id}")
+def create_comparisons_from_batch(batch_id: int, request: Request) -> JSONResponse:
+    """Auto-create comparisons grouping batch runs by prompt."""
+    session_factory = request.app.state.session_factory
+    with session_factory() as session:
+        batch = session.get(BatchRun, batch_id)
+        if batch is None:
+            raise HTTPException(status_code=404, detail="Batch not found")
+
+        runs = session.scalars(
+            select(Run).where(Run.batch_id == batch_id).order_by(Run.id)
+        ).all()
+
+        # Group runs by prompt_id.
+        groups: dict[int | None, list[Run]] = {}
+        for r in runs:
+            groups.setdefault(r.prompt_id, []).append(r)
+
+        created_ids: list[int] = []
+        for prompt_id, group_runs in groups.items():
+            if len(group_runs) < 2:
+                continue
+            comparison = Comparison(
+                name=f"{batch.name} — prompt comparison",
+                prompt_id=prompt_id,
+                batch_id=batch_id,
+            )
+            session.add(comparison)
+            session.flush()
+            for pos, r in enumerate(group_runs):
+                session.add(ComparisonItem(
+                    comparison_id=comparison.id,
+                    run_id=r.id,
+                    position=pos,
+                ))
+            created_ids.append(comparison.id)
+        session.commit()
+
+    return JSONResponse({"comparison_ids": created_ids}, status_code=201)
+
+
+@router.get("/comparisons")
+def list_comparisons(request: Request) -> JSONResponse:
+    """List all comparisons."""
+    session_factory = request.app.state.session_factory
+    with session_factory() as session:
+        comparisons = session.scalars(
+            select(Comparison)
+            .options(selectinload(Comparison.items))
+            .order_by(Comparison.created_at.desc())
+        ).all()
+    return JSONResponse([
+        {
+            "id": c.id,
+            "name": c.name,
+            "prompt_id": c.prompt_id,
+            "batch_id": c.batch_id,
+            "run_count": len(c.items),
+            "created_at": c.created_at.isoformat(),
+        }
+        for c in comparisons
+    ])
+
+
+@router.get("/comparisons/{comparison_id}")
+def get_comparison(comparison_id: int, request: Request) -> JSONResponse:
+    """Return comparison with full run data."""
+    session_factory = request.app.state.session_factory
+    with session_factory() as session:
+        comparison = session.scalar(
+            select(Comparison)
+            .options(
+                selectinload(Comparison.items).selectinload(ComparisonItem.run).selectinload(Run.provider),
+                selectinload(Comparison.items).selectinload(ComparisonItem.run).selectinload(Run.prompt),
+                selectinload(Comparison.items).selectinload(ComparisonItem.run).selectinload(Run.result),
+            )
+            .where(Comparison.id == comparison_id)
+        )
+        if comparison is None:
+            raise HTTPException(status_code=404, detail="Comparison not found")
+
+        runs_data = [_run_comparison_dict(item.run) for item in comparison.items]
+
+    return JSONResponse({
+        "id": comparison.id,
+        "name": comparison.name,
+        "prompt_id": comparison.prompt_id,
+        "batch_id": comparison.batch_id,
+        "created_at": comparison.created_at.isoformat(),
+        "runs": runs_data,
+    })
+
+
 @router.get("/providers/{provider_id}/models")
 def get_provider_models(provider_id: int, request: Request) -> JSONResponse:
     """Return the stored model list for a provider (no live check)."""
@@ -535,3 +988,143 @@ def get_provider_models(provider_id: int, request: Request) -> JSONResponse:
         ).all()
 
     return JSONResponse([_model_dict(m) for m in models])
+
+
+# ---------------------------------------------------------------------------
+# CSV Export
+# ---------------------------------------------------------------------------
+
+import csv
+import io
+
+
+def _csv_response(rows: list[dict], filename: str) -> Response:
+    """Build a CSV Response from a list of dicts (keys = headers)."""
+    if not rows:
+        return Response(
+            content="",
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=list(rows[0].keys()))
+    writer.writeheader()
+    writer.writerows(rows)
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/export/history")
+def export_history(request: Request) -> Response:
+    """Export run history as CSV."""
+    session_factory = request.app.state.session_factory
+    params = request.query_params
+    filter_provider_id = params.get("provider_id", "")
+    filter_status = params.get("status", "")
+
+    with session_factory() as session:
+        q = (
+            select(Run)
+            .options(
+                selectinload(Run.provider),
+                selectinload(Run.prompt),
+                selectinload(Run.result),
+                selectinload(Run.rating),
+            )
+        )
+        if filter_provider_id:
+            q = q.where(Run.provider_id == int(filter_provider_id))
+        if filter_status:
+            q = q.where(Run.status == filter_status)
+        q = q.order_by(Run.created_at.desc())
+
+        runs = session.scalars(q).all()
+        rows = []
+        for r in runs:
+            rows.append({
+                "run_id": r.id,
+                "date": r.created_at.isoformat() if r.created_at else "",
+                "provider": r.provider.name if r.provider else "",
+                "model": r.model_identifier,
+                "prompt": r.prompt.title if r.prompt else "ad-hoc",
+                "status": r.status.value,
+                "latency_ms": r.result.latency_ms if r.result else "",
+                "total_tokens": r.result.total_tokens if r.result else "",
+                "rating": r.rating.score if r.rating else "",
+                "output": r.result.raw_output_text if r.result else "",
+            })
+
+    return _csv_response(rows, "history.csv")
+
+
+@router.get("/export/batch/{batch_id}")
+def export_batch(batch_id: int, request: Request) -> Response:
+    """Export batch results as CSV."""
+    session_factory = request.app.state.session_factory
+    with session_factory() as session:
+        batch = session.get(BatchRun, batch_id)
+        if batch is None:
+            raise HTTPException(status_code=404, detail="Batch not found")
+
+        runs = session.scalars(
+            select(Run)
+            .options(
+                selectinload(Run.provider),
+                selectinload(Run.prompt),
+                selectinload(Run.result),
+            )
+            .where(Run.batch_id == batch_id)
+            .order_by(Run.id)
+        ).all()
+
+        rows = []
+        for r in runs:
+            rows.append({
+                "run_id": r.id,
+                "provider": r.provider.name if r.provider else "",
+                "model": r.model_identifier,
+                "prompt": r.prompt.title if r.prompt else "ad-hoc",
+                "status": r.status.value,
+                "latency_ms": r.result.latency_ms if r.result else "",
+                "total_tokens": r.result.total_tokens if r.result else "",
+                "output": r.result.raw_output_text if r.result else "",
+            })
+
+    return _csv_response(rows, f"batch-{batch_id}.csv")
+
+
+@router.get("/export/comparison/{comparison_id}")
+def export_comparison(comparison_id: int, request: Request) -> Response:
+    """Export comparison results as CSV."""
+    session_factory = request.app.state.session_factory
+    with session_factory() as session:
+        comparison = session.scalar(
+            select(Comparison)
+            .options(
+                selectinload(Comparison.items).selectinload(ComparisonItem.run).selectinload(Run.provider),
+                selectinload(Comparison.items).selectinload(ComparisonItem.run).selectinload(Run.prompt),
+                selectinload(Comparison.items).selectinload(ComparisonItem.run).selectinload(Run.result),
+            )
+            .where(Comparison.id == comparison_id)
+        )
+        if comparison is None:
+            raise HTTPException(status_code=404, detail="Comparison not found")
+
+        rows = []
+        for item in comparison.items:
+            r = item.run
+            rows.append({
+                "position": item.position,
+                "run_id": r.id,
+                "provider": r.provider.name if r.provider else "",
+                "model": r.model_identifier,
+                "status": r.status.value,
+                "latency_ms": r.result.latency_ms if r.result else "",
+                "total_tokens": r.result.total_tokens if r.result else "",
+                "output": r.result.raw_output_text if r.result else "",
+            })
+
+    return _csv_response(rows, f"comparison-{comparison_id}.csv")

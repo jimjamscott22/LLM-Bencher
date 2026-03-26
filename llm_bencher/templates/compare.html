@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %} | Compare{% endblock %}
+{% block content %}
+<section class="section-header">
+  <div>
+    <p class="eyebrow">Side-by-Side Comparison</p>
+    <h1>{{ comparison.name or ("Comparison #" ~ comparison.id) }}</h1>
+  </div>
+  <div>
+    <a href="/api/export/comparison/{{ comparison.id }}"
+      style="padding:7px 16px;border:1px solid var(--border);border-radius:8px;background:var(--surface-strong);color:var(--muted);font-size:0.85rem;text-decoration:none;">
+      Export CSV
+    </a>
+  </div>
+</section>
+
+{% set items = comparison.items %}
+{% set col_count = items | length %}
+
+<div class="compare-grid" style="display:grid;grid-template-columns:repeat({{ col_count }}, 1fr);gap:16px;">
+  {% for item in items %}
+  {% set run = item.run %}
+  <section class="panel" style="display:flex;flex-direction:column;">
+    {# Header #}
+    <div style="margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--border);">
+      <strong style="font-size:0.95rem;display:block;">{{ run.model_identifier }}</strong>
+      {% if run.provider %}
+      <span style="font-size:0.82rem;color:var(--muted);">{{ run.provider.name }}</span>
+      {% endif %}
+    </div>
+
+    {# Status + meta #}
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      {% if run.status.value == "succeeded" %}
+      <span class="badge badge-ready">Succeeded</span>
+      {% elif run.status.value == "failed" %}
+      <span class="badge badge-error">Failed</span>
+      {% else %}
+      <span class="badge badge-muted">{{ run.status.value | capitalize }}</span>
+      {% endif %}
+      <span style="font-size:0.78rem;color:var(--muted);">
+        {% if run.result and run.result.latency_ms %}{{ run.result.latency_ms }} ms{% endif %}
+        {% if run.result and run.result.total_tokens %} · {{ run.result.total_tokens }} tok{% endif %}
+      </span>
+    </div>
+
+    {# Output #}
+    {% if run.result %}
+    <pre class="compare-output" style="flex:1;margin:0;white-space:pre-wrap;word-break:break-word;font-family:'Cascadia Mono','Consolas',monospace;font-size:0.84rem;line-height:1.6;background:var(--bg-accent);padding:14px;border-radius:10px;overflow-y:auto;max-height:500px;">{{ run.result.raw_output_text }}</pre>
+    {% elif run.failure_message %}
+    <div style="flex:1;padding:14px;background:var(--bg-accent);border-radius:10px;">
+      <span style="font-size:0.85rem;color:var(--accent);">{{ run.failure_message }}</span>
+    </div>
+    {% else %}
+    <div style="flex:1;padding:14px;background:var(--bg-accent);border-radius:10px;color:var(--muted);font-size:0.85rem;">
+      No output
+    </div>
+    {% endif %}
+
+    {# Prompt info #}
+    {% if run.prompt %}
+    <div style="margin-top:10px;font-size:0.78rem;color:var(--muted);">
+      Prompt: {{ run.prompt.title }}
+    </div>
+    {% endif %}
+
+    <div style="margin-top:8px;">
+      <a href="{{ url_for('run_detail_page', run_id=run.id) }}" style="font-size:0.82rem;color:var(--accent);text-decoration:none;">View full run &rarr;</a>
+    </div>
+  </section>
+  {% endfor %}
+</div>
+
+{% if items | length == 0 %}
+<section class="panel" style="text-align:center;padding:48px 24px;">
+  <p style="color:var(--muted);font-size:1.05rem;">This comparison has no runs.</p>
+</section>
+{% endif %}
+{% endblock %}

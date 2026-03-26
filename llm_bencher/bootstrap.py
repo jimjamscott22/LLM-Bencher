@@ -37,6 +37,7 @@ def seed_default_providers(session: Session, settings: Settings) -> None:
                     name=provider_data["name"],
                     kind=provider_data["kind"],
                     base_url=base_url,
+                    is_default=True,
                 )
             )
             continue
@@ -45,3 +46,4 @@ def seed_default_providers(session: Session, settings: Settings) -> None:
         provider.kind = provider_data["kind"]
         provider.base_url = base_url
         provider.is_enabled = True
+        provider.is_default = True

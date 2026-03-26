@@ -4,22 +4,71 @@
 <section class="section-header">
   <div>
     <p class="eyebrow">Provider Setup</p>
-    <h1>Configured local providers</h1>
+    <h1>Configured providers</h1>
   </div>
   <p class="lede">
     Check the connection to each provider and discover the models currently
-    loaded. Make sure LM Studio or Ollama is running before checking.
+    loaded. Add custom providers for OpenAI or any OpenAI-compatible endpoint.
   </p>
 </section>
 
+{# ---- Add Provider Form ---- #}
+<section class="panel" style="padding:20px;">
+  <h3 style="margin:0 0 16px;font-size:0.95rem;">Add custom provider</h3>
+  <form id="add-provider-form" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+    <label style="display:grid;gap:4px;">
+      <span style="font-size:0.8rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);">Name</span>
+      <input type="text" name="name" required placeholder="My OpenAI"
+        style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface-strong);color:var(--text);font-size:0.875rem;">
+    </label>
+    <label style="display:grid;gap:4px;">
+      <span style="font-size:0.8rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);">Slug</span>
+      <input type="text" name="slug" required placeholder="my-openai" pattern="[a-z0-9\-]+"
+        style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface-strong);color:var(--text);font-size:0.875rem;">
+    </label>
+    <label style="display:grid;gap:4px;">
+      <span style="font-size:0.8rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);">Kind</span>
+      <select name="kind" required
+        style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface-strong);color:var(--text);font-size:0.875rem;">
+        {% for kind in provider_kinds %}
+        <option value="{{ kind }}">{{ kind }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label style="display:grid;gap:4px;">
+      <span style="font-size:0.8rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);">Base URL</span>
+      <input type="url" name="base_url" required placeholder="https://api.openai.com/v1"
+        style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface-strong);color:var(--text);font-size:0.875rem;">
+    </label>
+    <label style="display:grid;gap:4px;grid-column:1/-1;">
+      <span style="font-size:0.8rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);">API Key <span style="font-weight:normal;">(optional)</span></span>
+      <input type="password" name="api_key" placeholder="sk-..."
+        style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface-strong);color:var(--text);font-size:0.875rem;">
+    </label>
+    <div style="grid-column:1/-1;display:flex;gap:8px;align-items:center;">
+      <button type="submit"
+        style="padding:8px 18px;border:1px solid var(--border);border-radius:8px;background:var(--surface-strong);color:var(--text);font-size:0.9rem;cursor:pointer;">
+        Add provider
+      </button>
+      <span id="add-provider-status" style="font-size:0.82rem;color:var(--muted);"></span>
+    </div>
+  </form>
+</section>
+
+{# ---- Provider cards ---- #}
 <section class="card-list">
   {% for provider in providers %}
   <article class="panel" id="provider-{{ provider.id }}">
     <div class="card-head">
       <h2>{{ provider.name }}</h2>
-      <span class="badge {% if provider.is_enabled %}badge-ready{% else %}badge-muted{% endif %}">
-        {% if provider.is_enabled %}Enabled{% else %}Disabled{% endif %}
-      </span>
+      <div style="display:flex;gap:8px;align-items:center;">
+        {% if provider.is_default %}
+        <span class="badge badge-muted" style="font-size:0.72rem;">Default</span>
+        {% endif %}
+        <span class="badge {% if provider.is_enabled %}badge-ready{% else %}badge-muted{% endif %}">
+          {% if provider.is_enabled %}Enabled{% else %}Disabled{% endif %}
+        </span>
+      </div>
     </div>
 
     <dl class="meta">
@@ -31,6 +80,12 @@
         <dt>Kind</dt>
         <dd>{{ provider.kind.value }}</dd>
       </div>
+      {% if provider.api_key %}
+      <div>
+        <dt>API Key</dt>
+        <dd style="font-family:'Cascadia Mono','Consolas',monospace;font-size:0.82rem;">••••••••</dd>
+      </div>
+      {% endif %}
       <div>
         <dt>Connection</dt>
         <dd id="conn-status-{{ provider.id }}">
@@ -63,29 +118,73 @@
       {% endif %}
     </div>
 
-    <div style="margin-top:20px;">
+    {# ---- Edit form (hidden by default) ---- #}
+    <div id="edit-form-{{ provider.id }}" style="display:none;margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
+      <form class="edit-provider-form" data-provider-id="{{ provider.id }}" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <label style="display:grid;gap:4px;">
+          <span style="font-size:0.78rem;text-transform:uppercase;color:var(--muted);">Name</span>
+          <input type="text" name="name" value="{{ provider.name }}"
+            style="padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface-strong);color:var(--text);font-size:0.85rem;">
+        </label>
+        <label style="display:grid;gap:4px;">
+          <span style="font-size:0.78rem;text-transform:uppercase;color:var(--muted);">Base URL</span>
+          <input type="url" name="base_url" value="{{ provider.base_url }}"
+            style="padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface-strong);color:var(--text);font-size:0.85rem;">
+        </label>
+        <label style="display:grid;gap:4px;grid-column:1/-1;">
+          <span style="font-size:0.78rem;text-transform:uppercase;color:var(--muted);">API Key <span style="font-weight:normal;">(leave blank to keep current)</span></span>
+          <input type="password" name="api_key" placeholder="{% if provider.api_key %}••••••••{% endif %}"
+            style="padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface-strong);color:var(--text);font-size:0.85rem;">
+        </label>
+        <div style="grid-column:1/-1;display:flex;gap:8px;">
+          <button type="submit"
+            style="padding:6px 14px;border:1px solid var(--border);border-radius:6px;background:var(--surface-strong);color:var(--text);font-size:0.85rem;cursor:pointer;">
+            Save
+          </button>
+          <button type="button" class="cancel-edit-btn"
+            style="padding:6px 14px;border:1px solid var(--border);border-radius:6px;background:transparent;color:var(--muted);font-size:0.85rem;cursor:pointer;">
+            Cancel
+          </button>
+        </div>
+      </form>
+    </div>
+
+    <div style="margin-top:20px;display:flex;gap:8px;flex-wrap:wrap;">
       <button
         class="check-btn"
         data-provider-id="{{ provider.id }}"
         style="padding:8px 18px;border:1px solid var(--border);border-radius:8px;background:var(--surface-strong);color:var(--text);font-size:0.9rem;cursor:pointer;"
       >Check connection</button>
+      <button
+        class="edit-btn"
+        data-provider-id="{{ provider.id }}"
+        style="padding:8px 18px;border:1px solid var(--border);border-radius:8px;background:transparent;color:var(--muted);font-size:0.9rem;cursor:pointer;"
+      >Edit</button>
+      {% if not provider.is_default %}
+      <button
+        class="delete-btn"
+        data-provider-id="{{ provider.id }}"
+        data-provider-name="{{ provider.name }}"
+        style="padding:8px 18px;border:1px solid var(--border);border-radius:8px;background:transparent;color:var(--accent);font-size:0.9rem;cursor:pointer;"
+      >Delete</button>
+      {% endif %}
     </div>
   </article>
   {% endfor %}
 </section>
 
 <script>
+// ---- Check connection buttons ----
 document.querySelectorAll(".check-btn").forEach(function(btn) {
   btn.addEventListener("click", async function() {
     var providerId = btn.dataset.providerId;
     btn.disabled = true;
-    btn.textContent = "Checking…";
+    btn.textContent = "Checking\u2026";
 
     try {
       var resp = await fetch("/api/providers/" + providerId + "/check", {method: "POST"});
       var data = await resp.json();
 
-      // Update connection status
       var statusEl = document.getElementById("conn-status-" + providerId);
       var checkedAt = data.checked_at ? new Date(data.checked_at).toLocaleTimeString() : "";
       var badgeClass = data.is_connected ? "badge-ready" : "badge-error";
@@ -98,7 +197,6 @@ document.querySelectorAll(".check-btn").forEach(function(btn) {
         "<span style='color:var(--muted);font-size:0.82rem;margin-left:8px;'>checked " + checkedAt + "</span>" +
         errorHtml;
 
-      // Update model list
       var modelsEl = document.getElementById("models-" + providerId);
       if (data.models && data.models.length > 0) {
         var available = data.models.filter(function(m) { return m.is_available; });
@@ -122,6 +220,109 @@ document.querySelectorAll(".check-btn").forEach(function(btn) {
       btn.textContent = "Check connection";
     }
   });
+});
+
+// ---- Edit buttons ----
+document.querySelectorAll(".edit-btn").forEach(function(btn) {
+  btn.addEventListener("click", function() {
+    var id = btn.dataset.providerId;
+    var formEl = document.getElementById("edit-form-" + id);
+    formEl.style.display = formEl.style.display === "none" ? "block" : "none";
+  });
+});
+
+document.querySelectorAll(".cancel-edit-btn").forEach(function(btn) {
+  btn.addEventListener("click", function() {
+    btn.closest("[id^='edit-form-']").style.display = "none";
+  });
+});
+
+document.querySelectorAll(".edit-provider-form").forEach(function(form) {
+  form.addEventListener("submit", async function(e) {
+    e.preventDefault();
+    var id = form.dataset.providerId;
+    var body = {};
+    var name = form.querySelector("[name='name']").value.trim();
+    var baseUrl = form.querySelector("[name='base_url']").value.trim();
+    var apiKey = form.querySelector("[name='api_key']").value;
+    if (name) body.name = name;
+    if (baseUrl) body.base_url = baseUrl;
+    if (apiKey) body.api_key = apiKey;
+
+    try {
+      var resp = await fetch("/api/providers/" + id, {
+        method: "PUT",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(body),
+      });
+      if (resp.ok) {
+        window.location.reload();
+      } else {
+        var data = await resp.json();
+        alert(data.detail || "Error updating provider");
+      }
+    } catch (err) {
+      alert("Error: " + err.message);
+    }
+  });
+});
+
+// ---- Delete buttons ----
+document.querySelectorAll(".delete-btn").forEach(function(btn) {
+  btn.addEventListener("click", async function() {
+    var id = btn.dataset.providerId;
+    var name = btn.dataset.providerName;
+    if (!confirm("Delete provider \"" + name + "\"? This cannot be undone.")) return;
+
+    btn.disabled = true;
+    try {
+      var resp = await fetch("/api/providers/" + id, {method: "DELETE"});
+      if (resp.ok) {
+        window.location.reload();
+      } else {
+        var data = await resp.json();
+        alert(data.detail || "Error deleting provider");
+      }
+    } catch (err) {
+      alert("Error: " + err.message);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+});
+
+// ---- Add provider form ----
+document.getElementById("add-provider-form").addEventListener("submit", async function(e) {
+  e.preventDefault();
+  var form = this;
+  var statusEl = document.getElementById("add-provider-status");
+  var body = {
+    name: form.querySelector("[name='name']").value.trim(),
+    slug: form.querySelector("[name='slug']").value.trim(),
+    kind: form.querySelector("[name='kind']").value,
+    base_url: form.querySelector("[name='base_url']").value.trim(),
+  };
+  var apiKey = form.querySelector("[name='api_key']").value;
+  if (apiKey) body.api_key = apiKey;
+
+  statusEl.textContent = "Adding\u2026";
+  try {
+    var resp = await fetch("/api/providers", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(body),
+    });
+    if (resp.ok) {
+      window.location.reload();
+    } else {
+      var data = await resp.json();
+      statusEl.textContent = data.detail || "Error adding provider";
+      statusEl.style.color = "var(--accent)";
+    }
+  } catch (err) {
+    statusEl.textContent = "Error: " + err.message;
+    statusEl.style.color = "var(--accent)";
+  }
 });
 </script>
 {% endblock %}

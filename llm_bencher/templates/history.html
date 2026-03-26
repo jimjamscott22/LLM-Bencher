@@ -97,6 +97,7 @@
   <table style="width:100%;border-collapse:collapse;">
     <thead>
       <tr style="border-bottom:1px solid var(--border);text-align:left;">
+        <th style="padding:12px 8px 12px 16px;width:32px;"><input type="checkbox" id="select-all-runs" title="Select all"></th>
         <th style="padding:12px 16px;font-size:0.78rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);">Date</th>
         <th style="padding:12px 16px;font-size:0.78rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);">Provider / Model</th>
         <th style="padding:12px 16px;font-size:0.78rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);">Prompt</th>
@@ -109,6 +110,7 @@
     <tbody>
       {% for run in runs %}
       <tr style="border-bottom:1px solid var(--border);">
+        <td style="padding:12px 8px 12px 16px;"><input type="checkbox" class="run-cb" data-run-id="{{ run.id }}"></td>
         <td style="padding:12px 16px;font-size:0.85rem;color:var(--muted);white-space:nowrap;">
           {{ run.created_at.strftime("%Y-%m-%d") }}<br>
           <span style="font-size:0.78rem;">{{ run.created_at.strftime("%H:%M:%S") }}</span>
@@ -171,6 +173,17 @@
 </nav>
 {% endif %}
 
+<div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:8px;">
+  <a href="/api/export/history{% if filters.values() | select | list %}?{{ filter_qs() }}{% endif %}"
+    style="padding:7px 16px;border:1px solid var(--border);border-radius:8px;background:var(--surface-strong);color:var(--muted);font-size:0.85rem;text-decoration:none;">
+    Export CSV
+  </a>
+  <button id="compare-selected-btn" disabled
+    style="padding:7px 16px;border:1px solid var(--border);border-radius:8px;background:var(--surface-strong);color:var(--muted);font-size:0.85rem;cursor:pointer;">
+    Compare selected
+  </button>
+</div>
+
 {% else %}
 <section class="panel" style="text-align:center;padding:48px 24px;">
   <p style="color:var(--muted);font-size:1.05rem;margin:0;">
@@ -179,4 +192,51 @@
 </section>
 {% endif %}
 
+<script>
+(function() {
+  var selectAll = document.getElementById("select-all-runs");
+  var compareBtn = document.getElementById("compare-selected-btn");
+  if (!selectAll || !compareBtn) return;
+
+  function updateBtn() {
+    var checked = document.querySelectorAll(".run-cb:checked").length;
+    compareBtn.disabled = checked < 2;
+    compareBtn.style.color = checked >= 2 ? "var(--text)" : "var(--muted)";
+  }
+
+  selectAll.addEventListener("change", function() {
+    document.querySelectorAll(".run-cb").forEach(function(cb) { cb.checked = selectAll.checked; });
+    updateBtn();
+  });
+  document.querySelectorAll(".run-cb").forEach(function(cb) { cb.addEventListener("change", updateBtn); });
+
+  compareBtn.addEventListener("click", async function() {
+    var runIds = [];
+    document.querySelectorAll(".run-cb:checked").forEach(function(cb) {
+      runIds.push(parseInt(cb.dataset.runId));
+    });
+    if (runIds.length < 2) return;
+    compareBtn.disabled = true;
+    compareBtn.textContent = "Creating\u2026";
+    try {
+      var resp = await fetch("/api/comparisons", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({run_ids: runIds}),
+      });
+      var data = await resp.json();
+      if (resp.ok) {
+        window.location.href = "/compare/" + data.id;
+      } else {
+        alert(data.detail || "Error creating comparison");
+      }
+    } catch (err) {
+      alert("Error: " + err.message);
+    } finally {
+      compareBtn.disabled = false;
+      compareBtn.textContent = "Compare selected";
+    }
+  });
+})();
+</script>
 {% endblock %}

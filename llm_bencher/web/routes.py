@@ -5,7 +5,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
-from llm_bencher.models import PromptDefinition, Provider, ProviderModel, PromptSuite, Run, RunRating, RunStatus
+from llm_bencher.models import BatchRun, Comparison, ComparisonItem, PromptDefinition, Provider, ProviderKind, ProviderModel, PromptSuite, Run, RunRating, RunStatus
 
 
 router = APIRouter()
@@ -25,6 +25,9 @@ def _summary_counts(session: Session) -> dict[str, int]:
         "providers": session.scalar(select(func.count()).select_from(Provider)) or 0,
         "prompts": session.scalar(select(func.count()).select_from(PromptDefinition)) or 0,
         "runs": session.scalar(select(func.count()).select_from(Run)) or 0,
+        "batches": session.scalar(select(func.count()).select_from(BatchRun)) or 0,
+        "comparisons": session.scalar(select(func.count()).select_from(Comparison)) or 0,
+        "rated": session.scalar(select(func.count()).select_from(RunRating)) or 0,
     }
 
 
@@ -33,7 +36,24 @@ def home(request: Request) -> HTMLResponse:
     session_factory = request.app.state.session_factory
     with session_factory() as session:
         counts = _summary_counts(session)
-    return _render(request, "home.html", counts=counts)
+        recent_runs = session.scalars(
+            select(Run)
+            .options(
+                selectinload(Run.provider),
+                selectinload(Run.result),
+            )
+            .order_by(Run.created_at.desc())
+            .limit(5)
+        ).all()
+        providers = session.scalars(
+            select(Provider).order_by(Provider.name)
+        ).all()
+    return _render(
+        request, "home.html",
+        counts=counts,
+        recent_runs=recent_runs,
+        providers=providers,
+    )
 
 
 @router.get("/health", response_class=JSONResponse)
@@ -57,7 +77,11 @@ def providers_page(request: Request) -> HTMLResponse:
             .options(selectinload(Provider.models))
             .order_by(Provider.name)
         ).all()
-    return _render(request, "providers.html", providers=providers)
+    return _render(
+        request, "providers.html",
+        providers=providers,
+        provider_kinds=[k.value for k in ProviderKind],
+    )
 
 
 @router.get("/prompts", response_class=HTMLResponse)
@@ -112,6 +136,69 @@ def new_run_page(request: Request) -> HTMLResponse:
             .order_by(PromptSuite.name)
         ).all()
     return _render(request, "runs.html", providers=providers, suites=suites)
+
+
+@router.get("/runs/batch", response_class=HTMLResponse)
+def batch_run_page(request: Request) -> HTMLResponse:
+    session_factory = request.app.state.session_factory
+    with session_factory() as session:
+        providers = session.scalars(
+            select(Provider)
+            .options(selectinload(Provider.models))
+            .order_by(Provider.name)
+        ).all()
+        suites = session.scalars(
+            select(PromptSuite)
+            .options(selectinload(PromptSuite.prompts))
+            .where(PromptSuite.is_active.is_(True))
+            .order_by(PromptSuite.name)
+        ).all()
+    return _render(request, "batch_new.html", providers=providers, suites=suites)
+
+
+@router.get("/batches/{batch_id}", response_class=HTMLResponse)
+def batch_detail_page(request: Request, batch_id: int) -> HTMLResponse:
+    session_factory = request.app.state.session_factory
+    with session_factory() as session:
+        batch = session.get(BatchRun, batch_id)
+        if batch is None:
+            raise HTTPException(status_code=404, detail="Batch not found")
+
+        runs = session.scalars(
+            select(Run)
+            .options(
+                selectinload(Run.provider),
+                selectinload(Run.prompt),
+                selectinload(Run.result),
+            )
+            .where(Run.batch_id == batch_id)
+            .order_by(Run.id)
+        ).all()
+    return _render(request, "batch_detail.html", batch=batch, runs=runs)
+
+
+@router.get("/compare/{comparison_id}", response_class=HTMLResponse)
+def comparison_page(request: Request, comparison_id: int) -> HTMLResponse:
+    session_factory = request.app.state.session_factory
+    with session_factory() as session:
+        comparison = session.scalar(
+            select(Comparison)
+            .options(
+                selectinload(Comparison.items)
+                .selectinload(ComparisonItem.run)
+                .selectinload(Run.provider),
+                selectinload(Comparison.items)
+                .selectinload(ComparisonItem.run)
+                .selectinload(Run.prompt),
+                selectinload(Comparison.items)
+                .selectinload(ComparisonItem.run)
+                .selectinload(Run.result),
+            )
+            .where(Comparison.id == comparison_id)
+        )
+        if comparison is None:
+            raise HTTPException(status_code=404, detail="Comparison not found")
+    return _render(request, "compare.html", comparison=comparison)
 
 
 _PER_PAGE = 25
@@ -232,3 +319,8 @@ def run_detail_page(request: Request, run_id: int) -> HTMLResponse:
 
     back_url = f"/history?{back_params}" if back_params else "/history"
     return _render(request, "run_detail.html", run=run, back_url=back_url)
+
+
+@router.get("/analytics", response_class=HTMLResponse)
+def analytics_page(request: Request) -> HTMLResponse:
+    return _render(request, "analytics.html")
