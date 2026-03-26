@@ -5,7 +5,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
-from llm_bencher.models import PromptDefinition, Provider, ProviderModel, PromptSuite, Run, RunStatus
+from llm_bencher.models import PromptDefinition, Provider, ProviderModel, PromptSuite, Run, RunRating, RunStatus
 
 
 router = APIRouter()
@@ -63,6 +63,8 @@ def providers_page(request: Request) -> HTMLResponse:
 @router.get("/prompts", response_class=HTMLResponse)
 def prompts_page(request: Request) -> HTMLResponse:
     session_factory = request.app.state.session_factory
+    filter_tag = request.query_params.get("tag", "")
+
     with session_factory() as session:
         suites = session.scalars(
             select(PromptSuite)
@@ -70,7 +72,32 @@ def prompts_page(request: Request) -> HTMLResponse:
             .where(PromptSuite.is_active.is_(True))
             .order_by(PromptSuite.name)
         ).all()
-    return _render(request, "prompts.html", suites=suites)
+
+        # Collect all distinct tags for the filter UI.
+        all_tags: set[str] = set()
+        for s in suites:
+            for p in s.prompts:
+                if p.tags:
+                    all_tags.update(p.tags)
+
+        # If a tag filter is active, narrow suites to only those containing
+        # at least one prompt with that tag, and filter prompts within each suite.
+        if filter_tag:
+            filtered_suites = []
+            for s in suites:
+                matching = [p for p in s.prompts if filter_tag in (p.tags or [])]
+                if matching:
+                    # Attach filtered prompt list for the template.
+                    s._filtered_prompts = matching
+                    filtered_suites.append(s)
+            suites = filtered_suites
+
+    return _render(
+        request, "prompts.html",
+        suites=suites,
+        all_tags=sorted(all_tags),
+        filter_tag=filter_tag,
+    )
 
 
 @router.get("/runs/new", response_class=HTMLResponse)
@@ -98,6 +125,7 @@ def history_page(request: Request) -> HTMLResponse:
     filter_provider_id = params.get("provider_id", "")
     filter_model_id = params.get("model_id", "")
     filter_status = params.get("status", "")
+    filter_tag = params.get("tag", "")
     filter_date_from = params.get("date_from", "")
     filter_date_to = params.get("date_to", "")
     try:
@@ -114,6 +142,9 @@ def history_page(request: Request) -> HTMLResponse:
             base_q = base_q.where(Run.provider_model_id == int(filter_model_id))
         if filter_status:
             base_q = base_q.where(Run.status == filter_status)
+        if filter_tag:
+            base_q = base_q.join(PromptDefinition, Run.prompt_id == PromptDefinition.id)
+            base_q = base_q.where(PromptDefinition.tags.contains(filter_tag))
         if filter_date_from:
             base_q = base_q.where(Run.created_at >= filter_date_from)
         if filter_date_to:
@@ -130,6 +161,7 @@ def history_page(request: Request) -> HTMLResponse:
                 selectinload(Run.provider_model),
                 selectinload(Run.prompt),
                 selectinload(Run.result),
+                selectinload(Run.rating),
             )
             .order_by(Run.created_at.desc())
             .offset((page - 1) * _PER_PAGE)
@@ -143,11 +175,23 @@ def history_page(request: Request) -> HTMLResponse:
             select(ProviderModel).order_by(ProviderModel.display_name)
         ).all()
 
+        # Collect distinct tags for the tag filter dropdown.
+        all_prompts = session.scalars(
+            select(PromptDefinition)
+            .join(PromptSuite)
+            .where(PromptSuite.is_active.is_(True))
+        ).all()
+        all_tags: set[str] = set()
+        for p in all_prompts:
+            if p.tags:
+                all_tags.update(p.tags)
+
     total_pages = max(1, (total + _PER_PAGE - 1) // _PER_PAGE)
     filters = {
         "provider_id": filter_provider_id,
         "model_id": filter_model_id,
         "status": filter_status,
+        "tag": filter_tag,
         "date_from": filter_date_from,
         "date_to": filter_date_to,
     }
@@ -158,6 +202,7 @@ def history_page(request: Request) -> HTMLResponse:
         providers=providers,
         models=models,
         statuses=[s.value for s in RunStatus],
+        all_tags=sorted(all_tags),
         filters=filters,
         page=page,
         total_pages=total_pages,
@@ -178,6 +223,7 @@ def run_detail_page(request: Request, run_id: int) -> HTMLResponse:
                 selectinload(Run.provider_model),
                 selectinload(Run.prompt).selectinload(PromptDefinition.suite),
                 selectinload(Run.result),
+                selectinload(Run.rating),
             )
             .where(Run.id == run_id)
         )

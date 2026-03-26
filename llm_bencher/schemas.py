@@ -67,3 +67,15 @@ class RunResult(BaseModel):
     completion_tokens: int | None = None
     total_tokens: int | None = None
     raw_payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class RatingRequest(BaseModel):
+    score: int = Field(ge=1, le=5)
+    notes: str | None = None
+
+
+class RatingResponse(BaseModel):
+    run_id: int
+    score: int
+    notes: str | None = None
+    created_at: datetime

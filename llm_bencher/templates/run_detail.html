@@ -115,6 +115,102 @@
       </dl>
     </section>
 
+    <section class="panel" id="rating-panel">
+      <h2 style="margin:0 0 14px;font-size:1rem;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);">Rating</h2>
+      <div class="star-rating" data-run-id="{{ run.id }}">
+        {% set current_score = run.rating.score if run.rating else 0 %}
+        {% for i in range(1, 6) %}
+        <button type="button" class="star-btn{% if i <= current_score %} active{% endif %}" data-score="{{ i }}" aria-label="Rate {{ i }} star{{ 's' if i != 1 else '' }}">
+          {% if i <= current_score %}&#9733;{% else %}&#9734;{% endif %}
+        </button>
+        {% endfor %}
+        <span class="star-label" id="star-label">{% if current_score %}{{ current_score }}/5{% endif %}</span>
+      </div>
+      <div style="margin-top:10px;">
+        <textarea id="rating-notes" rows="2" placeholder="Optional notes..."
+          style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface-strong);color:var(--text);font-size:0.85rem;resize:vertical;font-family:inherit;">{{ run.rating.notes or '' if run.rating else '' }}</textarea>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:8px;">
+        <button type="button" id="save-rating-btn"
+          style="padding:6px 14px;border:1px solid var(--border);border-radius:8px;background:var(--surface-strong);color:var(--text);font-size:0.82rem;cursor:pointer;">
+          Save
+        </button>
+        {% if run.rating %}
+        <button type="button" id="delete-rating-btn"
+          style="padding:6px 14px;border:1px solid var(--border);border-radius:8px;background:transparent;color:var(--muted);font-size:0.82rem;cursor:pointer;">
+          Remove
+        </button>
+        {% endif %}
+      </div>
+      <p id="rating-status" style="margin:6px 0 0;font-size:0.8rem;color:var(--muted);"></p>
+    </section>
+
+    <script>
+    (function() {
+      const runId = {{ run.id }};
+      let selectedScore = {{ run.rating.score if run.rating else 0 }};
+      const stars = document.querySelectorAll('.star-btn');
+      const label = document.getElementById('star-label');
+      const notes = document.getElementById('rating-notes');
+      const status = document.getElementById('rating-status');
+
+      stars.forEach(btn => {
+        btn.addEventListener('click', () => {
+          selectedScore = parseInt(btn.dataset.score);
+          stars.forEach((s, idx) => {
+            const active = idx < selectedScore;
+            s.classList.toggle('active', active);
+            s.innerHTML = active ? '&#9733;' : '&#9734;';
+          });
+          label.textContent = selectedScore + '/5';
+        });
+      });
+
+      document.getElementById('save-rating-btn').addEventListener('click', async () => {
+        if (!selectedScore) { status.textContent = 'Select a star rating first.'; return; }
+        status.textContent = 'Saving...';
+        try {
+          const resp = await fetch('/api/runs/' + runId + '/rating', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({score: selectedScore, notes: notes.value || null})
+          });
+          if (!resp.ok) { const d = await resp.json(); throw new Error(d.detail || 'Failed'); }
+          const data = await resp.json();
+          status.textContent = 'Rating ' + data.action + '.';
+          // Show delete button if not already present
+          if (!document.getElementById('delete-rating-btn')) {
+            const delBtn = document.createElement('button');
+            delBtn.id = 'delete-rating-btn';
+            delBtn.type = 'button';
+            delBtn.textContent = 'Remove';
+            delBtn.style.cssText = 'padding:6px 14px;border:1px solid var(--border);border-radius:8px;background:transparent;color:var(--muted);font-size:0.82rem;cursor:pointer;';
+            delBtn.addEventListener('click', deleteRating);
+            document.getElementById('save-rating-btn').parentNode.appendChild(delBtn);
+          }
+        } catch(e) { status.textContent = 'Error: ' + e.message; }
+      });
+
+      async function deleteRating() {
+        status.textContent = 'Removing...';
+        try {
+          const resp = await fetch('/api/runs/' + runId + '/rating', {method: 'DELETE'});
+          if (!resp.ok) { const d = await resp.json(); throw new Error(d.detail || 'Failed'); }
+          selectedScore = 0;
+          stars.forEach(s => { s.classList.remove('active'); s.innerHTML = '&#9734;'; });
+          label.textContent = '';
+          notes.value = '';
+          status.textContent = 'Rating removed.';
+          const delBtn = document.getElementById('delete-rating-btn');
+          if (delBtn) delBtn.remove();
+        } catch(e) { status.textContent = 'Error: ' + e.message; }
+      }
+
+      const delBtn = document.getElementById('delete-rating-btn');
+      if (delBtn) delBtn.addEventListener('click', deleteRating);
+    })();
+    </script>
+
     {% if run.result and (run.result.prompt_tokens is not none or run.result.completion_tokens is not none) %}
     <section class="panel">
       <h2 style="margin:0 0 14px;font-size:1rem;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);">Token usage</h2>

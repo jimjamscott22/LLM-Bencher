@@ -12,6 +12,25 @@
   </p>
 </section>
 
+{% if all_tags %}
+<div class="panel" style="padding:14px 20px;">
+  <span style="font-size:0.8rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-right:8px;">Tags</span>
+  {% for tag in all_tags %}
+  <a href="/prompts?tag={{ tag | urlencode }}"
+    class="tag-pill{% if filter_tag == tag %} tag-pill-active{% endif %}">{{ tag }}</a>
+  {% endfor %}
+  {% if filter_tag %}
+  <a href="/prompts" class="tag-pill" style="color:var(--muted);border-style:dashed;">Clear</a>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if filter_tag %}
+<p style="font-size:0.9rem;color:var(--muted);margin:0;">
+  Showing prompts tagged <strong style="font-size:inherit;">{{ filter_tag }}</strong>
+</p>
+{% endif %}
+
 {% if suites %}
 <section class="panel">
   <table style="width:100%;border-collapse:collapse;">
@@ -33,11 +52,30 @@
           <p style="margin:2px 0 0;color:var(--muted);font-size:0.85rem;">{{ suite.description }}</p>
           {% endif %}
           <code style="font-size:0.78rem;color:var(--muted);">{{ suite.slug }}</code>
+          {% set suite_tags = [] %}
+          {% for p in suite.prompts %}
+            {% for t in (p.tags or []) %}
+              {% if t not in suite_tags %}{{ suite_tags.append(t) or "" }}{% endif %}
+            {% endfor %}
+          {% endfor %}
+          {% if suite_tags %}
+          <div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px;">
+            {% for tag in suite_tags | sort %}
+            <a href="/prompts?tag={{ tag | urlencode }}" class="tag-pill tag-pill-sm">{{ tag }}</a>
+            {% endfor %}
+          </div>
+          {% endif %}
         </td>
         <td style="padding:12px;font-family:'Cascadia Mono','Consolas',monospace;font-size:0.9rem;">
           {{ suite.version or "—" }}
         </td>
-        <td style="padding:12px;">{{ suite.prompts | length }}</td>
+        <td style="padding:12px;">
+          {% if filter_tag and suite._filtered_prompts is defined %}
+            {{ suite._filtered_prompts | length }} / {{ suite.prompts | length }}
+          {% else %}
+            {{ suite.prompts | length }}
+          {% endif %}
+        </td>
         <td style="padding:12px;color:var(--muted);font-size:0.85rem;">
           {% if suite.imported_at %}{{ suite.imported_at.strftime("%Y-%m-%d %H:%M") }}{% else %}—{% endif %}
         </td>

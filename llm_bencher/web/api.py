@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
@@ -14,6 +15,7 @@ from llm_bencher.models import (
     PromptSuite,
     ProviderModel,
     Run,
+    RunRating,
     RunResult as RunResultModel,
     RunStatus,
 )
@@ -130,6 +132,29 @@ async def check_provider(provider_id: int, request: Request) -> JSONResponse:
             "models": models,
         }
     )
+
+
+# ---------------------------------------------------------------------------
+# Tags
+# ---------------------------------------------------------------------------
+
+@router.get("/tags")
+def list_tags(request: Request) -> JSONResponse:
+    """Return distinct tags across all active prompt definitions."""
+    session_factory = request.app.state.session_factory
+    with session_factory() as session:
+        prompts = session.scalars(
+            select(PromptDefinition)
+            .join(PromptSuite)
+            .where(PromptSuite.is_active.is_(True))
+        ).all()
+
+    tags: set[str] = set()
+    for p in prompts:
+        if p.tags:
+            tags.update(p.tags)
+
+    return JSONResponse(sorted(tags))
 
 
 # ---------------------------------------------------------------------------
@@ -305,6 +330,7 @@ class RunCreateBody(BaseModel):
     prompt_id: int | None = None
     system_prompt: str | None = None
     user_prompt: str
+    template_inputs: dict[str, Any] = Field(default_factory=dict)
     temperature: float | None = None
     max_tokens: int | None = None
 
@@ -350,7 +376,7 @@ async def create_run(body: RunCreateBody, request: Request) -> JSONResponse:
             user_prompt=body.user_prompt,
             temperature=body.temperature,
             max_tokens=body.max_tokens,
-            template_inputs={},
+            template_inputs=body.template_inputs,
         )
         session.add(run)
         session.flush()
@@ -400,6 +426,96 @@ async def create_run(body: RunCreateBody, request: Request) -> JSONResponse:
         },
         status_code=201,
     )
+
+
+# ---------------------------------------------------------------------------
+# Run ratings
+# ---------------------------------------------------------------------------
+
+class RatingBody(BaseModel):
+    score: int
+    notes: str | None = None
+
+
+@router.post("/runs/{run_id}/rating")
+def upsert_rating(run_id: int, body: RatingBody, request: Request) -> JSONResponse:
+    """Create or update a rating for a run."""
+    if not (1 <= body.score <= 5):
+        raise HTTPException(status_code=422, detail="Score must be between 1 and 5")
+
+    session_factory = request.app.state.session_factory
+    with session_factory() as session:
+        run = session.get(Run, run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="Run not found")
+
+        rating = session.scalar(
+            select(RunRating).where(RunRating.run_id == run_id)
+        )
+        if rating:
+            rating.score = body.score
+            rating.notes = body.notes
+            action = "updated"
+        else:
+            rating = RunRating(run_id=run_id, score=body.score, notes=body.notes)
+            session.add(rating)
+            action = "created"
+
+        session.flush()
+        data = {
+            "run_id": run_id,
+            "score": rating.score,
+            "notes": rating.notes,
+            "created_at": rating.created_at.isoformat(),
+            "action": action,
+        }
+        session.commit()
+
+    return JSONResponse(data, status_code=201 if action == "created" else 200)
+
+
+@router.get("/runs/{run_id}/rating")
+def get_rating(run_id: int, request: Request) -> JSONResponse:
+    """Get the rating for a run."""
+    session_factory = request.app.state.session_factory
+    with session_factory() as session:
+        run = session.get(Run, run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="Run not found")
+
+        rating = session.scalar(
+            select(RunRating).where(RunRating.run_id == run_id)
+        )
+        if rating is None:
+            raise HTTPException(status_code=404, detail="No rating for this run")
+
+    return JSONResponse({
+        "run_id": run_id,
+        "score": rating.score,
+        "notes": rating.notes,
+        "created_at": rating.created_at.isoformat(),
+    })
+
+
+@router.delete("/runs/{run_id}/rating")
+def delete_rating(run_id: int, request: Request) -> JSONResponse:
+    """Delete the rating for a run."""
+    session_factory = request.app.state.session_factory
+    with session_factory() as session:
+        run = session.get(Run, run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="Run not found")
+
+        rating = session.scalar(
+            select(RunRating).where(RunRating.run_id == run_id)
+        )
+        if rating is None:
+            raise HTTPException(status_code=404, detail="No rating for this run")
+
+        session.delete(rating)
+        session.commit()
+
+    return JSONResponse({"run_id": run_id, "deleted": True})
 
 
 @router.get("/providers/{provider_id}/models")

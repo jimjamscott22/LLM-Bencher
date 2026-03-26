@@ -51,6 +51,18 @@
       </select>
     </label>
 
+    {% if all_tags %}
+    <label style="display:grid;gap:4px;min-width:140px;">
+      <span style="font-size:0.8rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);">Tag</span>
+      <select name="tag" style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface-strong);color:var(--text);font-size:0.875rem;">
+        <option value="">All tags</option>
+        {% for tag in all_tags %}
+        <option value="{{ tag }}" {% if filters.tag == tag %}selected{% endif %}>{{ tag }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    {% endif %}
+
     <label style="display:grid;gap:4px;">
       <span style="font-size:0.8rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);">From</span>
       <input type="date" name="date_from" value="{{ filters.date_from }}"
@@ -117,6 +129,11 @@
             <span class="badge badge-muted">Running</span>
           {% else %}
             <span class="badge badge-muted">{{ run.status.value | capitalize }}</span>
+          {% endif %}
+          {% if run.rating %}
+            <span class="rating-indicator" title="Rated {{ run.rating.score }}/5">
+              &#9733; {{ run.rating.score }}
+            </span>
           {% endif %}
         </td>
         <td style="padding:12px 16px;font-size:0.85rem;color:var(--muted);white-space:nowrap;">

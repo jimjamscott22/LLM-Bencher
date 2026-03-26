@@ -90,6 +90,13 @@
         </label>
       </fieldset>
 
+      <div id="variables-container" style="display:none;margin-bottom:20px;">
+        <fieldset style="border:none;padding:0;margin:0;">
+          <legend style="font-size:0.8rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-bottom:10px;">Template variables</legend>
+          <div id="variables-fields"></div>
+        </fieldset>
+      </div>
+
       <fieldset style="border:none;padding:0;margin:0 0 24px;">
         <legend style="font-size:0.8rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-bottom:10px;">Settings</legend>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
@@ -211,6 +218,9 @@ suitePrompts[{{ suite.id }}] = [
 suiteSelect.addEventListener("change", function() {
   var suiteId = parseInt(suiteSelect.value);
   promptSelect.innerHTML = "<option value=''>— choose prompt —</option>";
+  promptSelect.dataset.selectedId = "";
+  renderVariableFields([]);
+  _currentTemplate = "";
   if (!suiteId || !suitePrompts[suiteId]) return;
   suitePrompts[suiteId].forEach(function(p) {
     var opt = document.createElement("option");
@@ -220,17 +230,55 @@ suiteSelect.addEventListener("change", function() {
   });
 });
 
+// Track the raw template so we can substitute variables before submit.
+var _currentTemplate = "";
+var _currentVariables = [];
+
+function renderVariableFields(variables) {
+  var container = document.getElementById("variables-container");
+  var fields = document.getElementById("variables-fields");
+  fields.innerHTML = "";
+  _currentVariables = variables || [];
+  if (!_currentVariables.length) { container.style.display = "none"; return; }
+  container.style.display = "block";
+  _currentVariables.forEach(function(v) {
+    var label = document.createElement("label");
+    label.style.cssText = "display:block;margin-bottom:10px;";
+    var span = document.createElement("span");
+    span.style.cssText = "display:block;font-size:0.85rem;color:var(--muted);margin-bottom:4px;";
+    span.textContent = v.name + (v.required ? " *" : "");
+    if (v.description) span.title = v.description;
+    label.appendChild(span);
+    var input = document.createElement("input");
+    input.type = "text";
+    input.name = "var_" + v.name;
+    input.dataset.varName = v.name;
+    input.className = "template-var-input";
+    if (v.required) input.required = true;
+    if (v.default != null) input.value = v.default;
+    input.placeholder = v.description || v.name;
+    input.style.cssText = "width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface-strong);color:var(--text);font-size:0.9rem;box-sizing:border-box;";
+    label.appendChild(input);
+    fields.appendChild(label);
+  });
+}
+
 promptSelect.addEventListener("change", async function() {
   var promptId = promptSelect.value;
-  if (!promptId) return;
+  if (!promptId) {
+    renderVariableFields([]);
+    return;
+  }
   try {
     var resp = await fetch("/api/prompts/" + promptId);
     var data = await resp.json();
     document.getElementById("system-prompt").value = data.system_prompt || "";
-    document.getElementById("user-prompt").value = data.user_prompt_template || "";
+    _currentTemplate = data.user_prompt_template || "";
+    document.getElementById("user-prompt").value = _currentTemplate;
     if (data.default_temperature != null) document.getElementById("temperature").value = data.default_temperature;
     if (data.default_max_tokens != null) document.getElementById("max-tokens").value = data.default_max_tokens;
     promptSelect.dataset.selectedId = promptId;
+    renderVariableFields(data.variables || []);
   } catch (err) {
     console.error("Failed to load prompt:", err);
   }
@@ -256,11 +304,27 @@ document.getElementById("run-form").addEventListener("submit", async function(e)
   var temperature = document.getElementById("temperature").value;
   var maxTokens = document.getElementById("max-tokens").value;
 
+  // Collect template variable values and substitute into the prompt.
+  var templateInputs = {};
+  var userPrompt = document.getElementById("user-prompt").value;
+  document.querySelectorAll(".template-var-input").forEach(function(input) {
+    var name = input.dataset.varName;
+    templateInputs[name] = input.value;
+  });
+  if (_currentTemplate && Object.keys(templateInputs).length) {
+    var resolved = _currentTemplate;
+    Object.keys(templateInputs).forEach(function(k) {
+      resolved = resolved.split("{" + k + "}").join(templateInputs[k]);
+    });
+    userPrompt = resolved;
+  }
+
   var body = {
     provider_id: parseInt(document.getElementById("provider-select").value),
     model_external_id: document.getElementById("model-select").value,
     system_prompt: document.getElementById("system-prompt").value || null,
-    user_prompt: document.getElementById("user-prompt").value,
+    user_prompt: userPrompt,
+    template_inputs: templateInputs,
     temperature: temperature ? parseFloat(temperature) : null,
     max_tokens: maxTokens ? parseInt(maxTokens) : null,
   };
