@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
@@ -329,6 +330,7 @@ class RunCreateBody(BaseModel):
     prompt_id: int | None = None
     system_prompt: str | None = None
     user_prompt: str
+    template_inputs: dict[str, Any] = Field(default_factory=dict)
     temperature: float | None = None
     max_tokens: int | None = None
 
@@ -374,7 +376,7 @@ async def create_run(body: RunCreateBody, request: Request) -> JSONResponse:
             user_prompt=body.user_prompt,
             temperature=body.temperature,
             max_tokens=body.max_tokens,
-            template_inputs={},
+            template_inputs=body.template_inputs,
         )
         session.add(run)
         session.flush()
