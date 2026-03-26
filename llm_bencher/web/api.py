@@ -12,6 +12,8 @@ from sqlalchemy.orm import selectinload
 from llm_bencher.models import (
     BatchRun,
     BatchStatus,
+    Comparison,
+    ComparisonItem,
     Provider,
     PromptDefinition,
     PromptSuite,
@@ -675,6 +677,166 @@ def get_batch(batch_id: int, request: Request) -> JSONResponse:
             })
 
     return JSONResponse({**_batch_dict(batch), "runs": run_summaries})
+
+
+# ---------------------------------------------------------------------------
+# Comparisons
+# ---------------------------------------------------------------------------
+
+class ComparisonCreateBody(BaseModel):
+    run_ids: list[int]
+    name: str | None = None
+
+
+def _run_comparison_dict(run: Run) -> dict:
+    return {
+        "run_id": run.id,
+        "provider_name": run.provider.name if run.provider else None,
+        "model_identifier": run.model_identifier,
+        "model_name": run.model_name,
+        "prompt_title": run.prompt.title if run.prompt else "ad-hoc",
+        "status": run.status.value,
+        "output_text": run.result.raw_output_text if run.result else None,
+        "latency_ms": run.result.latency_ms if run.result else None,
+        "total_tokens": run.result.total_tokens if run.result else None,
+        "failure_message": run.failure_message,
+    }
+
+
+@router.post("/comparisons")
+def create_comparison(body: ComparisonCreateBody, request: Request) -> JSONResponse:
+    """Create a comparison from selected run IDs."""
+    if len(body.run_ids) < 2:
+        raise HTTPException(status_code=422, detail="At least 2 runs required for comparison")
+
+    session_factory = request.app.state.session_factory
+    with session_factory() as session:
+        # Validate all run IDs.
+        for rid in body.run_ids:
+            run = session.get(Run, rid)
+            if run is None:
+                raise HTTPException(status_code=404, detail=f"Run {rid} not found")
+
+        # Determine a common prompt_id if all runs share one.
+        prompt_ids = set()
+        for rid in body.run_ids:
+            run = session.get(Run, rid)
+            if run.prompt_id:
+                prompt_ids.add(run.prompt_id)
+        common_prompt_id = prompt_ids.pop() if len(prompt_ids) == 1 else None
+
+        comparison = Comparison(
+            name=body.name,
+            prompt_id=common_prompt_id,
+        )
+        session.add(comparison)
+        session.flush()
+
+        for pos, rid in enumerate(body.run_ids):
+            session.add(ComparisonItem(
+                comparison_id=comparison.id,
+                run_id=rid,
+                position=pos,
+            ))
+
+        session.flush()
+        comp_id = comparison.id
+        session.commit()
+
+    return JSONResponse({"id": comp_id}, status_code=201)
+
+
+@router.post("/comparisons/from-batch/{batch_id}")
+def create_comparisons_from_batch(batch_id: int, request: Request) -> JSONResponse:
+    """Auto-create comparisons grouping batch runs by prompt."""
+    session_factory = request.app.state.session_factory
+    with session_factory() as session:
+        batch = session.get(BatchRun, batch_id)
+        if batch is None:
+            raise HTTPException(status_code=404, detail="Batch not found")
+
+        runs = session.scalars(
+            select(Run).where(Run.batch_id == batch_id).order_by(Run.id)
+        ).all()
+
+        # Group runs by prompt_id.
+        groups: dict[int | None, list[Run]] = {}
+        for r in runs:
+            groups.setdefault(r.prompt_id, []).append(r)
+
+        created_ids: list[int] = []
+        for prompt_id, group_runs in groups.items():
+            if len(group_runs) < 2:
+                continue
+            comparison = Comparison(
+                name=f"{batch.name} — prompt comparison",
+                prompt_id=prompt_id,
+                batch_id=batch_id,
+            )
+            session.add(comparison)
+            session.flush()
+            for pos, r in enumerate(group_runs):
+                session.add(ComparisonItem(
+                    comparison_id=comparison.id,
+                    run_id=r.id,
+                    position=pos,
+                ))
+            created_ids.append(comparison.id)
+        session.commit()
+
+    return JSONResponse({"comparison_ids": created_ids}, status_code=201)
+
+
+@router.get("/comparisons")
+def list_comparisons(request: Request) -> JSONResponse:
+    """List all comparisons."""
+    session_factory = request.app.state.session_factory
+    with session_factory() as session:
+        comparisons = session.scalars(
+            select(Comparison)
+            .options(selectinload(Comparison.items))
+            .order_by(Comparison.created_at.desc())
+        ).all()
+    return JSONResponse([
+        {
+            "id": c.id,
+            "name": c.name,
+            "prompt_id": c.prompt_id,
+            "batch_id": c.batch_id,
+            "run_count": len(c.items),
+            "created_at": c.created_at.isoformat(),
+        }
+        for c in comparisons
+    ])
+
+
+@router.get("/comparisons/{comparison_id}")
+def get_comparison(comparison_id: int, request: Request) -> JSONResponse:
+    """Return comparison with full run data."""
+    session_factory = request.app.state.session_factory
+    with session_factory() as session:
+        comparison = session.scalar(
+            select(Comparison)
+            .options(
+                selectinload(Comparison.items).selectinload(ComparisonItem.run).selectinload(Run.provider),
+                selectinload(Comparison.items).selectinload(ComparisonItem.run).selectinload(Run.prompt),
+                selectinload(Comparison.items).selectinload(ComparisonItem.run).selectinload(Run.result),
+            )
+            .where(Comparison.id == comparison_id)
+        )
+        if comparison is None:
+            raise HTTPException(status_code=404, detail="Comparison not found")
+
+        runs_data = [_run_comparison_dict(item.run) for item in comparison.items]
+
+    return JSONResponse({
+        "id": comparison.id,
+        "name": comparison.name,
+        "prompt_id": comparison.prompt_id,
+        "batch_id": comparison.batch_id,
+        "created_at": comparison.created_at.isoformat(),
+        "runs": runs_data,
+    })
 
 
 @router.get("/providers/{provider_id}/models")

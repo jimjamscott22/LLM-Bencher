@@ -115,6 +115,44 @@
       </div>
     </div>
     {% endif %}
+
+    {% if runs | length >= 2 %}
+    <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
+      <button id="compare-batch-btn"
+        style="width:100%;padding:8px 16px;border:1px solid var(--border);border-radius:8px;background:var(--surface-strong);color:var(--text);font-size:0.9rem;cursor:pointer;">
+        Compare outputs
+      </button>
+      <p id="compare-status" style="margin:8px 0 0;font-size:0.82rem;color:var(--muted);display:none;"></p>
+    </div>
+    {% endif %}
   </section>
 </div>
+
+{% if runs | length >= 2 %}
+<script>
+document.getElementById("compare-batch-btn").addEventListener("click", async function() {
+  var btn = this;
+  var statusEl = document.getElementById("compare-status");
+  btn.disabled = true;
+  btn.textContent = "Creating\u2026";
+  statusEl.style.display = "none";
+  try {
+    var resp = await fetch("/api/comparisons/from-batch/{{ batch.id }}", {method: "POST"});
+    var data = await resp.json();
+    if (resp.ok && data.comparison_ids && data.comparison_ids.length > 0) {
+      window.location.href = "/compare/" + data.comparison_ids[0];
+    } else {
+      statusEl.style.display = "block";
+      statusEl.textContent = data.detail || "No comparisons created (need 2+ runs per prompt).";
+    }
+  } catch (err) {
+    statusEl.style.display = "block";
+    statusEl.textContent = "Error: " + err.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Compare outputs";
+  }
+});
+</script>
+{% endif %}
 {% endblock %}

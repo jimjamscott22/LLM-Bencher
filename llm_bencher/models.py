@@ -241,3 +241,35 @@ class RunRating(TimestampMixin, Base):
 
     run: Mapped["Run"] = relationship(back_populates="rating")
 
+
+class Comparison(TimestampMixin, Base):
+    __tablename__ = "comparisons"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str | None] = mapped_column(String(255))
+    prompt_id: Mapped[int | None] = mapped_column(ForeignKey("prompt_definitions.id"))
+    batch_id: Mapped[int | None] = mapped_column(ForeignKey("batch_runs.id"))
+
+    prompt: Mapped["PromptDefinition | None"] = relationship()
+    batch: Mapped["BatchRun | None"] = relationship()
+    items: Mapped[list["ComparisonItem"]] = relationship(
+        back_populates="comparison",
+        cascade="all, delete-orphan",
+        order_by="ComparisonItem.position",
+    )
+
+
+class ComparisonItem(Base):
+    __tablename__ = "comparison_items"
+    __table_args__ = (
+        UniqueConstraint("comparison_id", "run_id", name="uq_comparison_items_comparison_run"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    comparison_id: Mapped[int] = mapped_column(ForeignKey("comparisons.id"), nullable=False)
+    run_id: Mapped[int] = mapped_column(ForeignKey("runs.id"), nullable=False)
+    position: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    comparison: Mapped["Comparison"] = relationship(back_populates="items")
+    run: Mapped["Run"] = relationship()
+

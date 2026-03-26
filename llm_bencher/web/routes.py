@@ -5,7 +5,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
-from llm_bencher.models import BatchRun, PromptDefinition, Provider, ProviderModel, PromptSuite, Run, RunRating, RunStatus
+from llm_bencher.models import BatchRun, Comparison, ComparisonItem, PromptDefinition, Provider, ProviderModel, PromptSuite, Run, RunRating, RunStatus
 
 
 router = APIRouter()
@@ -151,6 +151,30 @@ def batch_detail_page(request: Request, batch_id: int) -> HTMLResponse:
             .order_by(Run.id)
         ).all()
     return _render(request, "batch_detail.html", batch=batch, runs=runs)
+
+
+@router.get("/compare/{comparison_id}", response_class=HTMLResponse)
+def comparison_page(request: Request, comparison_id: int) -> HTMLResponse:
+    session_factory = request.app.state.session_factory
+    with session_factory() as session:
+        comparison = session.scalar(
+            select(Comparison)
+            .options(
+                selectinload(Comparison.items)
+                .selectinload(ComparisonItem.run)
+                .selectinload(Run.provider),
+                selectinload(Comparison.items)
+                .selectinload(ComparisonItem.run)
+                .selectinload(Run.prompt),
+                selectinload(Comparison.items)
+                .selectinload(ComparisonItem.run)
+                .selectinload(Run.result),
+            )
+            .where(Comparison.id == comparison_id)
+        )
+        if comparison is None:
+            raise HTTPException(status_code=404, detail="Comparison not found")
+    return _render(request, "compare.html", comparison=comparison)
 
 
 _PER_PAGE = 25
