@@ -6,6 +6,12 @@
     <p class="eyebrow">Side-by-Side Comparison</p>
     <h1>{{ comparison.name or ("Comparison #" ~ comparison.id) }}</h1>
   </div>
+  <div>
+    <a href="/api/export/comparison/{{ comparison.id }}"
+      style="padding:7px 16px;border:1px solid var(--border);border-radius:8px;background:var(--surface-strong);color:var(--muted);font-size:0.85rem;text-decoration:none;">
+      Export CSV
+    </a>
+  </div>
 </section>
 
 {% set items = comparison.items %}

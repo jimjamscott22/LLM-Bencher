@@ -25,6 +25,9 @@ def _summary_counts(session: Session) -> dict[str, int]:
         "providers": session.scalar(select(func.count()).select_from(Provider)) or 0,
         "prompts": session.scalar(select(func.count()).select_from(PromptDefinition)) or 0,
         "runs": session.scalar(select(func.count()).select_from(Run)) or 0,
+        "batches": session.scalar(select(func.count()).select_from(BatchRun)) or 0,
+        "comparisons": session.scalar(select(func.count()).select_from(Comparison)) or 0,
+        "rated": session.scalar(select(func.count()).select_from(RunRating)) or 0,
     }
 
 
@@ -33,7 +36,24 @@ def home(request: Request) -> HTMLResponse:
     session_factory = request.app.state.session_factory
     with session_factory() as session:
         counts = _summary_counts(session)
-    return _render(request, "home.html", counts=counts)
+        recent_runs = session.scalars(
+            select(Run)
+            .options(
+                selectinload(Run.provider),
+                selectinload(Run.result),
+            )
+            .order_by(Run.created_at.desc())
+            .limit(5)
+        ).all()
+        providers = session.scalars(
+            select(Provider).order_by(Provider.name)
+        ).all()
+    return _render(
+        request, "home.html",
+        counts=counts,
+        recent_runs=recent_runs,
+        providers=providers,
+    )
 
 
 @router.get("/health", response_class=JSONResponse)
@@ -299,3 +319,8 @@ def run_detail_page(request: Request, run_id: int) -> HTMLResponse:
 
     back_url = f"/history?{back_params}" if back_params else "/history"
     return _render(request, "run_detail.html", run=run, back_url=back_url)
+
+
+@router.get("/analytics", response_class=HTMLResponse)
+def analytics_page(request: Request) -> HTMLResponse:
+    return _render(request, "analytics.html")

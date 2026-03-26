@@ -3,11 +3,11 @@
 {% block content %}
 <section class="hero">
   <div>
-    <p class="eyebrow">Backend Foundation</p>
-    <h1>Manual local testing for LM Studio and Ollama.</h1>
+    <p class="eyebrow">LLM Testing Platform</p>
+    <h1>Test, compare, and benchmark your local LLMs.</h1>
     <p class="lede">
-      The app is wired for a localhost-only workflow with seeded providers,
-      SQLite persistence, and server-rendered pages ready for the next slices.
+      Run prompts against LM Studio, Ollama, OpenAI, or any OpenAI-compatible endpoint.
+      Track performance, compare outputs, and export results.
     </p>
   </div>
   <div class="panel stat-grid">
@@ -16,34 +16,124 @@
       <strong>{{ counts.providers }}</strong>
     </article>
     <article>
-      <span class="stat-label">Prompt Records</span>
+      <span class="stat-label">Prompts</span>
       <strong>{{ counts.prompts }}</strong>
     </article>
     <article>
-      <span class="stat-label">Saved Runs</span>
+      <span class="stat-label">Runs</span>
       <strong>{{ counts.runs }}</strong>
+    </article>
+    <article>
+      <span class="stat-label">Batches</span>
+      <strong>{{ counts.batches }}</strong>
+    </article>
+    <article>
+      <span class="stat-label">Comparisons</span>
+      <strong>{{ counts.comparisons }}</strong>
+    </article>
+    <article>
+      <span class="stat-label">Rated</span>
+      <strong>{{ counts.rated }}</strong>
     </article>
   </div>
 </section>
 
+{# ---- Quick actions ---- #}
 <section class="panel section-grid">
   <article>
-    <h2>What is ready</h2>
-    <ul>
-      <li>FastAPI app factory and startup lifecycle</li>
-      <li>SQLite models for providers, prompts, runs, and results</li>
-      <li>Default LM Studio and Ollama provider records</li>
-      <li>Templates and static assets for the core page shell</li>
+    <h2>Quick actions</h2>
+    <ul style="list-style:none;padding:0;margin:0;">
+      <li style="margin-bottom:10px;">
+        <a href="{{ url_for('new_run_page') }}" style="color:var(--accent);text-decoration:none;font-weight:600;">Run a prompt &rarr;</a>
+        <span style="display:block;font-size:0.85rem;color:var(--muted);">Execute a single prompt against any model</span>
+      </li>
+      <li style="margin-bottom:10px;">
+        <a href="{{ url_for('batch_run_page') }}" style="color:var(--accent);text-decoration:none;font-weight:600;">Start batch run &rarr;</a>
+        <span style="display:block;font-size:0.85rem;color:var(--muted);">Run prompts across multiple models at once</span>
+      </li>
+      <li style="margin-bottom:10px;">
+        <a href="{{ url_for('analytics_page') }}" style="color:var(--accent);text-decoration:none;font-weight:600;">View analytics &rarr;</a>
+        <span style="display:block;font-size:0.85rem;color:var(--muted);">Latency, tokens, and success rates</span>
+      </li>
+      <li>
+        <a href="{{ url_for('providers_page') }}" style="color:var(--accent);text-decoration:none;font-weight:600;">Manage providers &rarr;</a>
+        <span style="display:block;font-size:0.85rem;color:var(--muted);">Add, configure, or check provider connections</span>
+      </li>
     </ul>
   </article>
+
   <article>
-    <h2>Next implementation slices</h2>
-    <ul>
-      <li>Provider adapters and connection checks</li>
-      <li>Prompt-suite import and export</li>
-      <li>Run execution forms and persistence</li>
-      <li>History filters and run detail views</li>
+    <h2>Provider status</h2>
+    {% if providers %}
+    <ul style="list-style:none;padding:0;margin:0;">
+      {% for p in providers %}
+      <li style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;{% if not loop.last %}border-bottom:1px solid var(--border);{% endif %}">
+        <div>
+          <strong style="font-size:0.92rem;">{{ p.name }}</strong>
+          <span style="font-size:0.78rem;color:var(--muted);margin-left:6px;">{{ p.kind.value }}</span>
+        </div>
+        <div>
+          {% if p.is_connected %}
+          <span class="badge badge-ready" style="font-size:0.7rem;padding:3px 8px;">Connected</span>
+          {% elif p.last_health_check_at %}
+          <span class="badge badge-error" style="font-size:0.7rem;padding:3px 8px;">Unreachable</span>
+          {% else %}
+          <span class="badge badge-muted" style="font-size:0.7rem;padding:3px 8px;">Not checked</span>
+          {% endif %}
+        </div>
+      </li>
+      {% endfor %}
     </ul>
+    {% else %}
+    <p style="color:var(--muted);font-size:0.9rem;">No providers configured.</p>
+    {% endif %}
   </article>
 </section>
+
+{# ---- Recent runs ---- #}
+{% if recent_runs %}
+<section class="panel">
+  <h2>Recent runs</h2>
+  <table style="width:100%;border-collapse:collapse;">
+    <thead>
+      <tr style="border-bottom:1px solid var(--border);text-align:left;">
+        <th style="padding:8px 12px;font-size:0.78rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);">Date</th>
+        <th style="padding:8px 12px;font-size:0.78rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);">Model</th>
+        <th style="padding:8px 12px;font-size:0.78rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);">Status</th>
+        <th style="padding:8px 12px;font-size:0.78rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);">Latency</th>
+        <th style="padding:8px 12px;"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for run in recent_runs %}
+      <tr style="border-bottom:1px solid var(--border);">
+        <td style="padding:10px 12px;font-size:0.85rem;color:var(--muted);">{{ run.created_at.strftime("%Y-%m-%d %H:%M") }}</td>
+        <td style="padding:10px 12px;">
+          <code style="font-size:0.85rem;">{{ run.model_name or run.model_identifier }}</code>
+          {% if run.provider %}<br><span style="font-size:0.78rem;color:var(--muted);">{{ run.provider.name }}</span>{% endif %}
+        </td>
+        <td style="padding:10px 12px;">
+          {% if run.status.value == "succeeded" %}
+          <span class="badge badge-ready">OK</span>
+          {% elif run.status.value == "failed" %}
+          <span class="badge badge-error">Fail</span>
+          {% else %}
+          <span class="badge badge-muted">{{ run.status.value | capitalize }}</span>
+          {% endif %}
+        </td>
+        <td style="padding:10px 12px;font-size:0.85rem;color:var(--muted);">
+          {% if run.result and run.result.latency_ms is not none %}{{ run.result.latency_ms }} ms{% else %}&mdash;{% endif %}
+        </td>
+        <td style="padding:10px 12px;">
+          <a href="{{ url_for('run_detail_page', run_id=run.id) }}" style="font-size:0.82rem;color:var(--accent);text-decoration:none;">View</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <div style="margin-top:12px;text-align:right;">
+    <a href="{{ url_for('history_page') }}" style="font-size:0.85rem;color:var(--accent);text-decoration:none;">View all history &rarr;</a>
+  </div>
+</section>
+{% endif %}
 {% endblock %}

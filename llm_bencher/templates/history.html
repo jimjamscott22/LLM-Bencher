@@ -173,7 +173,11 @@
 </nav>
 {% endif %}
 
-<div style="display:flex;justify-content:flex-end;margin-bottom:8px;">
+<div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:8px;">
+  <a href="/api/export/history{% if filters.values() | select | list %}?{{ filter_qs() }}{% endif %}"
+    style="padding:7px 16px;border:1px solid var(--border);border-radius:8px;background:var(--surface-strong);color:var(--muted);font-size:0.85rem;text-decoration:none;">
+    Export CSV
+  </a>
   <button id="compare-selected-btn" disabled
     style="padding:7px 16px;border:1px solid var(--border);border-radius:8px;background:var(--surface-strong);color:var(--muted);font-size:0.85rem;cursor:pointer;">
     Compare selected

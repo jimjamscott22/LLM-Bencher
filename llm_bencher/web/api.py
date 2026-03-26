@@ -988,3 +988,143 @@ def get_provider_models(provider_id: int, request: Request) -> JSONResponse:
         ).all()
 
     return JSONResponse([_model_dict(m) for m in models])
+
+
+# ---------------------------------------------------------------------------
+# CSV Export
+# ---------------------------------------------------------------------------
+
+import csv
+import io
+
+
+def _csv_response(rows: list[dict], filename: str) -> Response:
+    """Build a CSV Response from a list of dicts (keys = headers)."""
+    if not rows:
+        return Response(
+            content="",
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=list(rows[0].keys()))
+    writer.writeheader()
+    writer.writerows(rows)
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/export/history")
+def export_history(request: Request) -> Response:
+    """Export run history as CSV."""
+    session_factory = request.app.state.session_factory
+    params = request.query_params
+    filter_provider_id = params.get("provider_id", "")
+    filter_status = params.get("status", "")
+
+    with session_factory() as session:
+        q = (
+            select(Run)
+            .options(
+                selectinload(Run.provider),
+                selectinload(Run.prompt),
+                selectinload(Run.result),
+                selectinload(Run.rating),
+            )
+        )
+        if filter_provider_id:
+            q = q.where(Run.provider_id == int(filter_provider_id))
+        if filter_status:
+            q = q.where(Run.status == filter_status)
+        q = q.order_by(Run.created_at.desc())
+
+        runs = session.scalars(q).all()
+        rows = []
+        for r in runs:
+            rows.append({
+                "run_id": r.id,
+                "date": r.created_at.isoformat() if r.created_at else "",
+                "provider": r.provider.name if r.provider else "",
+                "model": r.model_identifier,
+                "prompt": r.prompt.title if r.prompt else "ad-hoc",
+                "status": r.status.value,
+                "latency_ms": r.result.latency_ms if r.result else "",
+                "total_tokens": r.result.total_tokens if r.result else "",
+                "rating": r.rating.score if r.rating else "",
+                "output": r.result.raw_output_text if r.result else "",
+            })
+
+    return _csv_response(rows, "history.csv")
+
+
+@router.get("/export/batch/{batch_id}")
+def export_batch(batch_id: int, request: Request) -> Response:
+    """Export batch results as CSV."""
+    session_factory = request.app.state.session_factory
+    with session_factory() as session:
+        batch = session.get(BatchRun, batch_id)
+        if batch is None:
+            raise HTTPException(status_code=404, detail="Batch not found")
+
+        runs = session.scalars(
+            select(Run)
+            .options(
+                selectinload(Run.provider),
+                selectinload(Run.prompt),
+                selectinload(Run.result),
+            )
+            .where(Run.batch_id == batch_id)
+            .order_by(Run.id)
+        ).all()
+
+        rows = []
+        for r in runs:
+            rows.append({
+                "run_id": r.id,
+                "provider": r.provider.name if r.provider else "",
+                "model": r.model_identifier,
+                "prompt": r.prompt.title if r.prompt else "ad-hoc",
+                "status": r.status.value,
+                "latency_ms": r.result.latency_ms if r.result else "",
+                "total_tokens": r.result.total_tokens if r.result else "",
+                "output": r.result.raw_output_text if r.result else "",
+            })
+
+    return _csv_response(rows, f"batch-{batch_id}.csv")
+
+
+@router.get("/export/comparison/{comparison_id}")
+def export_comparison(comparison_id: int, request: Request) -> Response:
+    """Export comparison results as CSV."""
+    session_factory = request.app.state.session_factory
+    with session_factory() as session:
+        comparison = session.scalar(
+            select(Comparison)
+            .options(
+                selectinload(Comparison.items).selectinload(ComparisonItem.run).selectinload(Run.provider),
+                selectinload(Comparison.items).selectinload(ComparisonItem.run).selectinload(Run.prompt),
+                selectinload(Comparison.items).selectinload(ComparisonItem.run).selectinload(Run.result),
+            )
+            .where(Comparison.id == comparison_id)
+        )
+        if comparison is None:
+            raise HTTPException(status_code=404, detail="Comparison not found")
+
+        rows = []
+        for item in comparison.items:
+            r = item.run
+            rows.append({
+                "position": item.position,
+                "run_id": r.id,
+                "provider": r.provider.name if r.provider else "",
+                "model": r.model_identifier,
+                "status": r.status.value,
+                "latency_ms": r.result.latency_ms if r.result else "",
+                "total_tokens": r.result.total_tokens if r.result else "",
+                "output": r.result.raw_output_text if r.result else "",
+            })
+
+    return _csv_response(rows, f"comparison-{comparison_id}.csv")
