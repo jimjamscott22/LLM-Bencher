@@ -4,9 +4,10 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
 
-from sqlalchemy import MetaData, create_engine
+from sqlalchemy import MetaData, create_engine, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
+from sqlalchemy.sql.schema import Column
 
 
 NAMING_CONVENTION = {
@@ -53,11 +54,67 @@ def get_session_factory(database_url: str, *, echo: bool = False) -> sessionmake
     return _sessionmakers[cache_key]
 
 
+def _render_sqlite_default(column: Column[Any]) -> str | None:
+    default = column.default
+    if default is None or not default.is_scalar:
+        return None
+
+    value = default.arg
+    if isinstance(value, bool):
+        return "1" if value else "0"
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, str):
+        escaped = value.replace("'", "''")
+        return f"'{escaped}'"
+    return None
+
+
+def _render_sqlite_add_column(column: Column[Any], engine: Engine) -> str:
+    parts = [
+        f'ALTER TABLE "{column.table.name}" ADD COLUMN "{column.name}"',
+        column.type.compile(dialect=engine.dialect),
+    ]
+    if not column.nullable:
+        parts.append("NOT NULL")
+
+    default_sql = _render_sqlite_default(column)
+    if default_sql is not None:
+        parts.append(f"DEFAULT {default_sql}")
+    elif not column.nullable:
+        raise RuntimeError(
+            f"Cannot auto-migrate missing non-null column {column.table.name}.{column.name} without a scalar default"
+        )
+
+    return " ".join(parts)
+
+
+def upgrade_sqlite_schema(database_url: str, *, echo: bool = False) -> None:
+    engine = get_engine(database_url, echo=echo)
+    if engine.dialect.name != "sqlite":
+        return
+
+    with engine.begin() as connection:
+        inspector = inspect(connection)
+        for table in Base.metadata.sorted_tables:
+            if not inspector.has_table(table.name):
+                continue
+
+            existing_columns = {column["name"] for column in inspector.get_columns(table.name)}
+            missing_columns = [
+                column for column in table.columns if column.name not in existing_columns
+            ]
+            for column in missing_columns:
+                connection.execute(text(_render_sqlite_add_column(column, engine)))
+                inspector = inspect(connection)
+
+
 def initialize_database(database_url: str, *, echo: bool = False) -> None:
     from llm_bencher import models  # noqa: F401
 
     engine = get_engine(database_url, echo=echo)
     Base.metadata.create_all(bind=engine)
+    upgrade_sqlite_schema(database_url, echo=echo)
 
 
 @contextmanager
