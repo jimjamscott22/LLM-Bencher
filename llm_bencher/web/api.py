@@ -6,7 +6,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from llm_bencher.models import (
@@ -15,6 +15,7 @@ from llm_bencher.models import (
     Comparison,
     ComparisonItem,
     Provider,
+    ProviderKind,
     PromptDefinition,
     PromptSuite,
     ProviderModel,
@@ -136,6 +137,137 @@ async def check_provider(provider_id: int, request: Request) -> JSONResponse:
             "models": models,
         }
     )
+
+
+# ---------------------------------------------------------------------------
+# Provider CRUD
+# ---------------------------------------------------------------------------
+
+def _provider_dict(p: Provider) -> dict:
+    return {
+        "id": p.id,
+        "slug": p.slug,
+        "name": p.name,
+        "kind": p.kind.value,
+        "base_url": p.base_url,
+        "has_api_key": bool(p.api_key),
+        "is_enabled": p.is_enabled,
+        "is_default": p.is_default,
+        "is_connected": p.is_connected,
+    }
+
+
+class ProviderCreateBody(BaseModel):
+    slug: str
+    name: str
+    kind: str
+    base_url: str
+    api_key: str | None = None
+    is_enabled: bool = True
+
+
+class ProviderUpdateBody(BaseModel):
+    name: str | None = None
+    base_url: str | None = None
+    api_key: str | None = None
+    is_enabled: bool | None = None
+
+
+@router.get("/providers")
+def list_providers(request: Request) -> JSONResponse:
+    """List all providers."""
+    session_factory = request.app.state.session_factory
+    with session_factory() as session:
+        providers = session.scalars(
+            select(Provider).order_by(Provider.name)
+        ).all()
+    return JSONResponse([_provider_dict(p) for p in providers])
+
+
+@router.post("/providers")
+def create_provider(body: ProviderCreateBody, request: Request) -> JSONResponse:
+    """Add a custom provider."""
+    try:
+        kind = ProviderKind(body.kind)
+    except ValueError:
+        valid = [k.value for k in ProviderKind]
+        raise HTTPException(status_code=422, detail=f"Invalid kind. Must be one of: {valid}")
+
+    session_factory = request.app.state.session_factory
+    with session_factory() as session:
+        existing = session.scalar(
+            select(Provider).where(Provider.slug == body.slug)
+        )
+        if existing:
+            raise HTTPException(status_code=409, detail=f"Provider with slug '{body.slug}' already exists")
+
+        provider = Provider(
+            slug=body.slug,
+            name=body.name,
+            kind=kind,
+            base_url=body.base_url,
+            api_key=body.api_key,
+            is_enabled=body.is_enabled,
+            is_default=False,
+        )
+        session.add(provider)
+        session.flush()
+        data = _provider_dict(provider)
+        session.commit()
+
+    return JSONResponse(data, status_code=201)
+
+
+@router.put("/providers/{provider_id}")
+def update_provider(provider_id: int, body: ProviderUpdateBody, request: Request) -> JSONResponse:
+    """Update an existing provider."""
+    session_factory = request.app.state.session_factory
+    with session_factory() as session:
+        provider = session.get(Provider, provider_id)
+        if provider is None:
+            raise HTTPException(status_code=404, detail="Provider not found")
+
+        if body.name is not None:
+            provider.name = body.name
+        if body.base_url is not None:
+            provider.base_url = body.base_url
+        if body.api_key is not None:
+            provider.api_key = body.api_key if body.api_key else None
+        if body.is_enabled is not None:
+            provider.is_enabled = body.is_enabled
+
+        session.flush()
+        data = _provider_dict(provider)
+        session.commit()
+
+    return JSONResponse(data)
+
+
+@router.delete("/providers/{provider_id}")
+def delete_provider(provider_id: int, request: Request) -> JSONResponse:
+    """Delete a custom (non-default) provider."""
+    session_factory = request.app.state.session_factory
+    with session_factory() as session:
+        provider = session.get(Provider, provider_id)
+        if provider is None:
+            raise HTTPException(status_code=404, detail="Provider not found")
+        if provider.is_default:
+            raise HTTPException(status_code=403, detail="Cannot delete a default provider")
+
+        # Check for existing runs.
+        run_count = session.scalar(
+            select(func.count()).select_from(Run).where(Run.provider_id == provider_id)
+        ) or 0
+        if run_count > 0:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Cannot delete provider with {run_count} existing run(s). Disable it instead.",
+            )
+
+        session.delete(provider)
+        session.commit()
+
+    return JSONResponse({"id": provider_id, "deleted": True})
 
 
 # ---------------------------------------------------------------------------

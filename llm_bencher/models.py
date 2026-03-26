@@ -17,6 +17,8 @@ def utc_now() -> datetime:
 class ProviderKind(StrEnum):
     LM_STUDIO = "lm_studio"
     OLLAMA = "ollama"
+    OPENAI = "openai"
+    OPENAI_COMPAT = "openai_compat"
 
 
 class RunStatus(StrEnum):
@@ -56,7 +58,9 @@ class Provider(TimestampMixin, Base):
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     kind: Mapped[ProviderKind] = mapped_column(Enum(ProviderKind), nullable=False)
     base_url: Mapped[str] = mapped_column(String(255), nullable=False)
+    api_key: Mapped[str | None] = mapped_column(String(255))
     is_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_connected: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     last_health_check_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_error: Mapped[str | None] = mapped_column(Text)

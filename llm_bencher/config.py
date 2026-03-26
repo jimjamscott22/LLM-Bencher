@@ -46,6 +46,8 @@ class Settings:
     static_dir: Path = PACKAGE_ROOT / "static"
     lm_studio_base_url: str = "http://127.0.0.1:1234/v1"
     ollama_base_url: str = "http://127.0.0.1:11434"
+    openai_api_key: str = ""
+    openai_base_url: str = "https://api.openai.com/v1"
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -73,6 +75,11 @@ class Settings:
             ollama_base_url=os.getenv(
                 "LLM_BENCHER_OLLAMA_URL",
                 "http://127.0.0.1:11434",
+            ),
+            openai_api_key=os.getenv("LLM_BENCHER_OPENAI_API_KEY", ""),
+            openai_base_url=os.getenv(
+                "LLM_BENCHER_OPENAI_BASE_URL",
+                "https://api.openai.com/v1",
             ),
         )
 

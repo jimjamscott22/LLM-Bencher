@@ -5,7 +5,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
-from llm_bencher.models import BatchRun, Comparison, ComparisonItem, PromptDefinition, Provider, ProviderModel, PromptSuite, Run, RunRating, RunStatus
+from llm_bencher.models import BatchRun, Comparison, ComparisonItem, PromptDefinition, Provider, ProviderKind, ProviderModel, PromptSuite, Run, RunRating, RunStatus
 
 
 router = APIRouter()
@@ -57,7 +57,11 @@ def providers_page(request: Request) -> HTMLResponse:
             .options(selectinload(Provider.models))
             .order_by(Provider.name)
         ).all()
-    return _render(request, "providers.html", providers=providers)
+    return _render(
+        request, "providers.html",
+        providers=providers,
+        provider_kinds=[k.value for k in ProviderKind],
+    )
 
 
 @router.get("/prompts", response_class=HTMLResponse)
