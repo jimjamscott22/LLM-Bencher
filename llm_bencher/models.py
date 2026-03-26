@@ -26,6 +26,14 @@ class RunStatus(StrEnum):
     FAILED = "failed"
 
 
+class BatchStatus(StrEnum):
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    PARTIAL = "partial"
+    FAILED = "failed"
+
+
 class TimestampMixin:
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -143,6 +151,25 @@ class PromptImportRecord(Base):
     suite: Mapped["PromptSuite"] = relationship(back_populates="import_records")
 
 
+class BatchRun(TimestampMixin, Base):
+    __tablename__ = "batch_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str | None] = mapped_column(String(255))
+    status: Mapped[BatchStatus] = mapped_column(
+        Enum(BatchStatus),
+        default=BatchStatus.PENDING,
+        nullable=False,
+    )
+    total_runs: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    completed_runs: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    failed_runs: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    runs: Mapped[list["Run"]] = relationship(back_populates="batch")
+
+
 class Run(TimestampMixin, Base):
     __tablename__ = "runs"
 
@@ -150,6 +177,7 @@ class Run(TimestampMixin, Base):
     provider_id: Mapped[int] = mapped_column(ForeignKey("providers.id"), nullable=False)
     provider_model_id: Mapped[int | None] = mapped_column(ForeignKey("provider_models.id"))
     prompt_id: Mapped[int | None] = mapped_column(ForeignKey("prompt_definitions.id"))
+    batch_id: Mapped[int | None] = mapped_column(ForeignKey("batch_runs.id"))
     status: Mapped[RunStatus] = mapped_column(
         Enum(RunStatus),
         default=RunStatus.PENDING,
@@ -169,6 +197,7 @@ class Run(TimestampMixin, Base):
     provider: Mapped["Provider"] = relationship(back_populates="runs")
     provider_model: Mapped["ProviderModel"] = relationship(back_populates="runs")
     prompt: Mapped["PromptDefinition"] = relationship(back_populates="runs")
+    batch: Mapped["BatchRun | None"] = relationship(back_populates="runs")
     result: Mapped["RunResult"] = relationship(
         back_populates="run",
         cascade="all, delete-orphan",

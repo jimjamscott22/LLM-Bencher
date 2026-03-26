@@ -10,6 +10,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from llm_bencher.models import (
+    BatchRun,
+    BatchStatus,
     Provider,
     PromptDefinition,
     PromptSuite,
@@ -516,6 +518,163 @@ def delete_rating(run_id: int, request: Request) -> JSONResponse:
         session.commit()
 
     return JSONResponse({"run_id": run_id, "deleted": True})
+
+
+# ---------------------------------------------------------------------------
+# Batch runs
+# ---------------------------------------------------------------------------
+
+class ModelTarget(BaseModel):
+    provider_id: int
+    model_external_id: str
+    model_name: str | None = None
+
+
+class BatchCreateBody(BaseModel):
+    name: str | None = None
+    models: list[ModelTarget]
+    prompt_ids: list[int]
+    system_prompt: str | None = None
+    temperature: float | None = None
+    max_tokens: int | None = None
+
+
+def _batch_dict(batch: BatchRun) -> dict:
+    return {
+        "id": batch.id,
+        "name": batch.name,
+        "status": batch.status.value,
+        "total_runs": batch.total_runs,
+        "completed_runs": batch.completed_runs,
+        "failed_runs": batch.failed_runs,
+        "started_at": batch.started_at.isoformat() if batch.started_at else None,
+        "completed_at": batch.completed_at.isoformat() if batch.completed_at else None,
+        "created_at": batch.created_at.isoformat(),
+    }
+
+
+@router.post("/batches")
+async def create_batch(body: BatchCreateBody, request: Request) -> JSONResponse:
+    """Create a batch and generate Run rows for each (prompt, model) combination,
+    then immediately execute all runs."""
+    if not body.models:
+        raise HTTPException(status_code=422, detail="At least one model is required")
+    if not body.prompt_ids:
+        raise HTTPException(status_code=422, detail="At least one prompt is required")
+
+    session_factory = request.app.state.session_factory
+    settings = request.app.state.settings
+
+    with session_factory() as session:
+        # Validate all prompt IDs exist.
+        for pid in body.prompt_ids:
+            prompt = session.get(PromptDefinition, pid)
+            if prompt is None:
+                raise HTTPException(status_code=404, detail=f"Prompt {pid} not found")
+
+        # Validate all providers exist.
+        for mt in body.models:
+            provider = session.get(Provider, mt.provider_id)
+            if provider is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Provider {mt.provider_id} not found",
+                )
+
+        batch_name = body.name or f"Batch {_utc_now().strftime('%Y-%m-%d %H:%M')}"
+        batch = BatchRun(
+            name=batch_name,
+            status=BatchStatus.PENDING,
+            total_runs=len(body.models) * len(body.prompt_ids),
+        )
+        session.add(batch)
+        session.flush()
+        batch_id = batch.id
+
+        # Create a Run for each (prompt, model) pair.
+        for pid in body.prompt_ids:
+            prompt = session.get(PromptDefinition, pid)
+            for mt in body.models:
+                pm = session.scalar(
+                    select(ProviderModel).where(
+                        ProviderModel.provider_id == mt.provider_id,
+                        ProviderModel.external_id == mt.model_external_id,
+                    )
+                )
+                session.add(
+                    Run(
+                        batch_id=batch_id,
+                        provider_id=mt.provider_id,
+                        provider_model_id=pm.id if pm else None,
+                        prompt_id=pid,
+                        status=RunStatus.PENDING,
+                        model_identifier=mt.model_external_id,
+                        model_name=mt.model_name or mt.model_external_id,
+                        system_prompt=prompt.system_prompt or body.system_prompt,
+                        user_prompt=prompt.user_prompt_template,
+                        temperature=body.temperature or prompt.default_temperature,
+                        max_tokens=body.max_tokens or prompt.default_max_tokens,
+                        template_inputs={},
+                    )
+                )
+        session.commit()
+
+    # Execute the batch asynchronously.
+    from llm_bencher.batch_runner import execute_batch
+    await execute_batch(batch_id, session_factory, settings)
+
+    # Return final state.
+    with session_factory() as session:
+        batch = session.get(BatchRun, batch_id)
+        return JSONResponse(_batch_dict(batch), status_code=201)
+
+
+@router.get("/batches")
+def list_batches(request: Request) -> JSONResponse:
+    """List all batches ordered by most recent first."""
+    session_factory = request.app.state.session_factory
+    with session_factory() as session:
+        batches = session.scalars(
+            select(BatchRun).order_by(BatchRun.created_at.desc())
+        ).all()
+    return JSONResponse([_batch_dict(b) for b in batches])
+
+
+@router.get("/batches/{batch_id}")
+def get_batch(batch_id: int, request: Request) -> JSONResponse:
+    """Return batch details with individual run summaries."""
+    session_factory = request.app.state.session_factory
+    with session_factory() as session:
+        batch = session.get(BatchRun, batch_id)
+        if batch is None:
+            raise HTTPException(status_code=404, detail="Batch not found")
+
+        runs = session.scalars(
+            select(Run)
+            .options(
+                selectinload(Run.provider),
+                selectinload(Run.prompt),
+                selectinload(Run.result),
+            )
+            .where(Run.batch_id == batch_id)
+            .order_by(Run.id)
+        ).all()
+
+        run_summaries = []
+        for r in runs:
+            run_summaries.append({
+                "run_id": r.id,
+                "provider_name": r.provider.name if r.provider else None,
+                "model_identifier": r.model_identifier,
+                "prompt_title": r.prompt.title if r.prompt else "ad-hoc",
+                "status": r.status.value,
+                "latency_ms": r.result.latency_ms if r.result else None,
+                "total_tokens": r.result.total_tokens if r.result else None,
+                "output_text": r.result.raw_output_text if r.result else None,
+                "failure_message": r.failure_message,
+            })
+
+    return JSONResponse({**_batch_dict(batch), "runs": run_summaries})
 
 
 @router.get("/providers/{provider_id}/models")

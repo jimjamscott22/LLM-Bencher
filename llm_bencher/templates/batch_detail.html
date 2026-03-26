@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block title %} | Batch #{{ batch.id }}{% endblock %}
+{% block content %}
+<section class="section-header">
+  <div>
+    <p class="eyebrow"><a href="{{ url_for('history_page') }}" style="color:var(--muted);text-decoration:none;">History</a></p>
+    <h1>{{ batch.name or ("Batch #" ~ batch.id) }}</h1>
+  </div>
+</section>
+
+<div style="display:grid;grid-template-columns:2fr 1fr;gap:24px;">
+  {# ---- Main: run table ---- #}
+  <section class="panel">
+    <table style="width:100%;border-collapse:collapse;">
+      <thead>
+        <tr style="border-bottom:1px solid var(--border);text-align:left;">
+          <th style="padding:10px 12px;font-size:0.8rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);">Prompt</th>
+          <th style="padding:10px 12px;font-size:0.8rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);">Model</th>
+          <th style="padding:10px 12px;font-size:0.8rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);">Status</th>
+          <th style="padding:10px 12px;font-size:0.8rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);">Latency</th>
+          <th style="padding:10px 12px;font-size:0.8rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);">Tokens</th>
+          <th style="padding:10px 12px;font-size:0.8rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for run in runs %}
+        <tr style="border-bottom:1px solid var(--border);">
+          <td style="padding:12px;font-size:0.9rem;">
+            {% if run.prompt %}{{ run.prompt.title }}{% else %}ad-hoc{% endif %}
+          </td>
+          <td style="padding:12px;">
+            <code style="font-size:0.82rem;">{{ run.model_identifier }}</code>
+            {% if run.provider %}<br><span style="font-size:0.78rem;color:var(--muted);">{{ run.provider.name }}</span>{% endif %}
+          </td>
+          <td style="padding:12px;">
+            {% if run.status.value == "succeeded" %}
+            <span class="badge badge-ready">Succeeded</span>
+            {% elif run.status.value == "failed" %}
+            <span class="badge badge-error">Failed</span>
+            {% else %}
+            <span class="badge badge-muted">{{ run.status.value | capitalize }}</span>
+            {% endif %}
+          </td>
+          <td style="padding:12px;font-size:0.88rem;color:var(--muted);">
+            {% if run.result and run.result.latency_ms %}{{ run.result.latency_ms }} ms{% else %}&mdash;{% endif %}
+          </td>
+          <td style="padding:12px;font-size:0.88rem;color:var(--muted);">
+            {% if run.result and run.result.total_tokens %}{{ run.result.total_tokens }}{% else %}&mdash;{% endif %}
+          </td>
+          <td style="padding:12px;">
+            <a href="{{ url_for('run_detail_page', run_id=run.id) }}" style="font-size:0.85rem;color:var(--accent);text-decoration:none;">View</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  {# ---- Sidebar ---- #}
+  <section class="panel">
+    <h3 style="margin:0 0 16px;font-size:0.95rem;">Batch details</h3>
+    <dl class="meta">
+      <dt>Status</dt>
+      <dd>
+        {% if batch.status.value == "completed" %}
+        <span class="badge badge-ready">Completed</span>
+        {% elif batch.status.value == "failed" %}
+        <span class="badge badge-error">Failed</span>
+        {% elif batch.status.value == "partial" %}
+        <span class="badge badge-muted">Partial</span>
+        {% else %}
+        <span class="badge badge-muted">{{ batch.status.value | capitalize }}</span>
+        {% endif %}
+      </dd>
+      <dt>Total runs</dt>
+      <dd>{{ batch.total_runs }}</dd>
+      <dt>Succeeded</dt>
+      <dd>{{ batch.completed_runs }}</dd>
+      <dt>Failed</dt>
+      <dd>{{ batch.failed_runs }}</dd>
+      <dt>Created</dt>
+      <dd>{{ batch.created_at.strftime("%Y-%m-%d %H:%M") }}</dd>
+      {% if batch.started_at %}
+      <dt>Started</dt>
+      <dd>{{ batch.started_at.strftime("%Y-%m-%d %H:%M:%S") }}</dd>
+      {% endif %}
+      {% if batch.completed_at %}
+      <dt>Finished</dt>
+      <dd>{{ batch.completed_at.strftime("%Y-%m-%d %H:%M:%S") }}</dd>
+      {% endif %}
+    </dl>
+
+    {% if batch.started_at and batch.completed_at %}
+    {% set duration_s = (batch.completed_at - batch.started_at).total_seconds() %}
+    <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
+      <span style="font-size:0.82rem;color:var(--muted);">Total duration:</span>
+      <strong style="font-size:0.9rem;">{{ "%.1f"|format(duration_s) }}s</strong>
+    </div>
+    {% endif %}
+
+    {# Progress bar #}
+    {% if batch.total_runs > 0 %}
+    <div style="margin-top:16px;">
+      <div style="background:var(--border);border-radius:4px;height:8px;overflow:hidden;">
+        {% set pct_ok = (batch.completed_runs / batch.total_runs * 100)|int %}
+        {% set pct_fail = (batch.failed_runs / batch.total_runs * 100)|int %}
+        <div style="display:flex;height:100%;">
+          <div style="width:{{ pct_ok }}%;background:var(--ready);"></div>
+          <div style="width:{{ pct_fail }}%;background:var(--accent);"></div>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:0.75rem;color:var(--muted);margin-top:4px;">
+        <span>{{ batch.completed_runs }} ok</span>
+        <span>{{ batch.failed_runs }} failed</span>
+      </div>
+    </div>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

@@ -5,7 +5,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
-from llm_bencher.models import PromptDefinition, Provider, ProviderModel, PromptSuite, Run, RunRating, RunStatus
+from llm_bencher.models import BatchRun, PromptDefinition, Provider, ProviderModel, PromptSuite, Run, RunRating, RunStatus
 
 
 router = APIRouter()
@@ -112,6 +112,45 @@ def new_run_page(request: Request) -> HTMLResponse:
             .order_by(PromptSuite.name)
         ).all()
     return _render(request, "runs.html", providers=providers, suites=suites)
+
+
+@router.get("/runs/batch", response_class=HTMLResponse)
+def batch_run_page(request: Request) -> HTMLResponse:
+    session_factory = request.app.state.session_factory
+    with session_factory() as session:
+        providers = session.scalars(
+            select(Provider)
+            .options(selectinload(Provider.models))
+            .order_by(Provider.name)
+        ).all()
+        suites = session.scalars(
+            select(PromptSuite)
+            .options(selectinload(PromptSuite.prompts))
+            .where(PromptSuite.is_active.is_(True))
+            .order_by(PromptSuite.name)
+        ).all()
+    return _render(request, "batch_new.html", providers=providers, suites=suites)
+
+
+@router.get("/batches/{batch_id}", response_class=HTMLResponse)
+def batch_detail_page(request: Request, batch_id: int) -> HTMLResponse:
+    session_factory = request.app.state.session_factory
+    with session_factory() as session:
+        batch = session.get(BatchRun, batch_id)
+        if batch is None:
+            raise HTTPException(status_code=404, detail="Batch not found")
+
+        runs = session.scalars(
+            select(Run)
+            .options(
+                selectinload(Run.provider),
+                selectinload(Run.prompt),
+                selectinload(Run.result),
+            )
+            .where(Run.batch_id == batch_id)
+            .order_by(Run.id)
+        ).all()
+    return _render(request, "batch_detail.html", batch=batch, runs=runs)
 
 
 _PER_PAGE = 25
