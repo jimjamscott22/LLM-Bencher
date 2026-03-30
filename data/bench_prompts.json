@@ -1,0 +1,128 @@
+{
+  "slug": "llm-stress-bench-v1",
+  "name": "LLM Stress Benchmark Suite",
+  "description": "10 demanding prompts across reasoning, coding, math, creativity, and analysis to stress-test local LLM performance under varied temperature and token settings.",
+  "version": "1.0.0",
+  "prompts": [
+    {
+      "slug": "multi-step-math-proof",
+      "title": "Multi-Step Mathematical Proof",
+      "category": "Mathematics",
+      "description": "Forces the model to produce a rigorous step-by-step proof — tests logical chaining and precision at near-zero temperature.",
+      "tags": ["math", "reasoning", "low-temp"],
+      "system_prompt": "You are a rigorous mathematics professor. Show every step of your working and justify each transition.",
+      "user_prompt_template": "Prove by induction that the sum of the first n positive integers equals n(n+1)/2. Then extend the proof to show that the sum of the first n odd numbers equals n². Write each step formally, labelling the base case, inductive hypothesis, and inductive step.",
+      "variables": [],
+      "default_temperature": 0.1,
+      "default_max_tokens": 1024
+    },
+    {
+      "slug": "complex-algorithm-implementation",
+      "title": "Complex Algorithm Implementation",
+      "category": "Coding",
+      "description": "Asks for a non-trivial algorithm with edge-case handling — tests code quality and correctness at low temperature.",
+      "tags": ["coding", "algorithms", "low-temp"],
+      "system_prompt": "You are a senior software engineer. Write clean, well-commented Python code with proper edge-case handling and time/space complexity analysis.",
+      "user_prompt_template": "Implement a Python function that finds all strongly connected components (SCCs) in a directed graph using Tarjan's algorithm. Include:\n1. The full annotated implementation\n2. A worked example with a 7-node graph\n3. Time and space complexity analysis\n4. Unit tests covering edge cases (empty graph, single node, self-loop, disconnected graph)",
+      "variables": [],
+      "default_temperature": 0.2,
+      "default_max_tokens": 2048
+    },
+    {
+      "slug": "long-form-essay",
+      "title": "Long-Form Analytical Essay",
+      "category": "Writing",
+      "description": "Pushes the model to sustain a coherent long-form argument — tests context retention and reasoning depth at high token count.",
+      "tags": ["writing", "analysis", "long-output"],
+      "system_prompt": "You are an expert in technology and society. Write with nuance, cite concrete examples, and maintain a clear thesis throughout.",
+      "user_prompt_template": "Write a 1000-word analytical essay on the following thesis: 'The proliferation of large language models represents a fundamental shift in how humanity will produce and consume knowledge, with consequences as profound as the printing press.' Address counter-arguments, economic impacts, epistemological risks, and the role of open-source models.",
+      "variables": [],
+      "default_temperature": 0.75,
+      "default_max_tokens": 2048
+    },
+    {
+      "slug": "logic-puzzle-deduction",
+      "title": "Multi-Constraint Logic Puzzle",
+      "category": "Reasoning",
+      "description": "A hard constraint-satisfaction puzzle that requires tracking many simultaneous rules — fails easily with creative drift.",
+      "tags": ["logic", "reasoning", "low-temp"],
+      "system_prompt": "You are a careful, systematic reasoner. Work through each clue methodically and show a clear elimination grid.",
+      "user_prompt_template": "Solve this logic puzzle step by step:\n\nFive colleagues (Alice, Bob, Carol, Dave, Eve) each use a different LLM (GPT-4, Claude, Gemini, Mistral, Llama) and work in different departments (Engineering, Marketing, Finance, HR, Legal).\n\nClues:\n1. Alice does not work in Engineering or Finance.\n2. The person using Claude works in Legal.\n3. Bob uses either Mistral or Llama.\n4. Carol works in Marketing and does not use GPT-4.\n5. The Engineering person uses Gemini.\n6. Dave works in Finance.\n7. Eve does not use Claude or GPT-4.\n8. The HR person uses Llama.\n9. Alice does not use Mistral.\n\nDerive who uses which LLM and works in which department. Show your full elimination process.",
+      "variables": [],
+      "default_temperature": 0.05,
+      "default_max_tokens": 1500
+    },
+    {
+      "slug": "creative-world-building",
+      "title": "Creative World-Building",
+      "category": "Creative Writing",
+      "description": "High-temperature, open-ended generation to probe creativity, fluency, and coherence under entropy.",
+      "tags": ["creative", "writing", "high-temp"],
+      "system_prompt": "You are a world-class science fiction author. Be inventive, specific, and vivid. Avoid clichés.",
+      "user_prompt_template": "Design a complete alien civilisation that has never encountered humans. Include:\n- Their biology and sensory apparatus\n- Their method of communication (non-verbal)\n- Their social structure and concept of individuality\n- Their relationship with technology (they must have reached a space-faring stage)\n- One major internal cultural conflict currently threatening their society\n\nWrite it as a field report from a xenoanthropologist discovering them for the first time.",
+      "variables": [],
+      "default_temperature": 1.1,
+      "default_max_tokens": 2048
+    },
+    {
+      "slug": "code-review-refactor",
+      "title": "Code Review and Refactoring",
+      "category": "Coding",
+      "description": "Provides messy, buggy code and demands a detailed review plus clean rewrite — tests precision and code understanding.",
+      "tags": ["coding", "refactoring", "review"],
+      "system_prompt": "You are a meticulous senior engineer conducting a code review. Identify every bug, smell, and style issue before rewriting.",
+      "user_prompt_template": "Review the following Python code, list every bug and code smell you find (numbered), then rewrite it cleanly:\n\n```python\ndef process_data(data):\n    result = []\n    for i in range(0, len(data)):\n        if data[i] != None:\n            if type(data[i]) == str:\n                result.append(data[i].upper())\n            elif type(data[i]) == int or type(data[i]) == float:\n                result.append(data[i] * 2)\n            else:\n                pass\n        else:\n            result.append(None)\n    return result\n\ndef get_stats(lst):\n    total = 0\n    count = 0\n    for x in lst:\n        if x != None:\n            total = total + x\n            count = count + 1\n    avg = total / count\n    return {\"total\": total, \"avg\": avg, \"count\": count}\n```\n\nAlso add type hints, docstrings, and handle the division-by-zero edge case.",
+      "variables": [],
+      "default_temperature": 0.2,
+      "default_max_tokens": 1500
+    },
+    {
+      "slug": "multi-perspective-debate",
+      "title": "Multi-Perspective Structured Debate",
+      "category": "Analysis",
+      "description": "Forces the model to convincingly argue multiple conflicting positions — tests nuance and avoidance of sycophancy.",
+      "tags": ["analysis", "debate", "reasoning"],
+      "system_prompt": "You are a professional debate coach and policy analyst. Present each position as its strongest possible version (steelman), not a straw man.",
+      "user_prompt_template": "Present three distinct, well-reasoned positions on the following question: 'Should AI development be subject to international treaty-based governance similar to nuclear weapons?'\n\nFor each position:\n1. State the core argument in one sentence\n2. Provide three concrete supporting arguments\n3. Acknowledge the strongest counter-argument and respond to it\n\nThen write a 150-word synthesis that identifies the underlying values conflict driving the disagreement.",
+      "variables": [],
+      "default_temperature": 0.7,
+      "default_max_tokens": 2048
+    },
+    {
+      "slug": "dense-text-extraction",
+      "title": "Structured Data Extraction from Dense Text",
+      "category": "Extraction",
+      "description": "Tests the model's ability to parse unstructured prose into a strict schema — low temp, short output, high precision required.",
+      "tags": ["extraction", "structured-output", "low-temp"],
+      "system_prompt": "You are a precise data extraction engine. Output only valid JSON. Do not add commentary or markdown fences.",
+      "user_prompt_template": "Extract all entities from the following paragraph into a JSON object with keys: people (array of {name, role}), organisations (array of {name, type}), locations (array of {name, country}), dates (array of {value, context}).\n\nParagraph: \"On 14 March 2023, Dr. Sarah Chen, Chief Science Officer at DeepMind (a subsidiary of Alphabet Inc. headquartered in London, UK), presented preliminary findings at the NeurIPS conference held in New Orleans, USA. She co-authored the study with Prof. Kenji Tanaka of Kyoto University, Japan, and acknowledged funding from the European Research Council based in Brussels, Belgium. The follow-up paper is expected by Q3 2024.\"",
+      "variables": [],
+      "default_temperature": 0.0,
+      "default_max_tokens": 512
+    },
+    {
+      "slug": "recursive-story-continuation",
+      "title": "Recursive Constrained Story",
+      "category": "Creative Writing",
+      "description": "A heavily constrained creative task requiring the model to satisfy multiple simultaneous narrative rules — tests instruction-following under generative pressure.",
+      "tags": ["creative", "constrained", "high-temp"],
+      "system_prompt": "You are a creative writing expert who specialises in constrained writing challenges. Follow every constraint exactly.",
+      "user_prompt_template": "Write a short story (400–500 words) that satisfies ALL of the following constraints simultaneously:\n1. Every paragraph must begin with the next letter of the alphabet (start at A).\n2. The protagonist must be a retired cryptographer.\n3. The story must include exactly three plot reversals.\n4. No sentence may exceed 15 words.\n5. The story must end on an ambiguous note that can be read as either happy or tragic.\n6. The word 'computer' must never appear — use creative alternatives.\n\nAfter the story, list which paragraph starts with which letter to confirm compliance.",
+      "variables": [],
+      "default_temperature": 0.9,
+      "default_max_tokens": 1024
+    },
+    {
+      "slug": "chain-of-thought-science",
+      "title": "Chain-of-Thought Scientific Explanation",
+      "category": "Science",
+      "description": "Demands a layered, technically accurate explanation across three levels of expertise — tests depth, accuracy, and adaptive communication.",
+      "tags": ["science", "explanation", "reasoning"],
+      "system_prompt": "You are a science communicator with a PhD in physics. Be technically accurate at every level — do not sacrifice correctness for simplicity.",
+      "user_prompt_template": "Explain how a transformer neural network processes a sentence, at three different levels:\n\n**Level 1 – For a 10-year-old:** Use a simple analogy, no jargon, 3–4 sentences.\n\n**Level 2 – For a software engineer with no ML background:** Cover tokenisation, embeddings, attention heads, and feed-forward layers. Use code-adjacent language but no actual code.\n\n**Level 3 – For an ML researcher:** Cover multi-head self-attention formally (include the Q, K, V matrix operations and the scaled dot-product formula), residual connections, layer normalisation, and how positional encodings break permutation invariance. Note at least two known limitations of the architecture.",
+      "variables": [],
+      "default_temperature": 0.3,
+      "default_max_tokens": 2048
+    }
+  ]
+}
