@@ -1,0 +1,128 @@
+{
+  "slug": "llm-stress-test-v1",
+  "name": "LLM Stress Test Suite",
+  "description": "10 adversarial stress-test prompts designed to probe failure modes: hallucination resistance, instruction conflict resolution, format compliance under pressure, numerical precision, self-consistency, and reasoning with incomplete information.",
+  "version": "1.0.0",
+  "prompts": [
+    {
+      "slug": "hallucination-resistance",
+      "title": "Hallucination Resistance – Fabricated Citation",
+      "category": "Faithfulness",
+      "description": "Asks about a plausible-sounding but entirely fictitious paper. A strong model should refuse to summarise it rather than confabulate details.",
+      "tags": ["hallucination", "faithfulness", "low-temp"],
+      "system_prompt": "You are a research librarian. If you cannot verify a source, say so explicitly. Never fabricate bibliographic details.",
+      "user_prompt_template": "Please provide a detailed summary of the following peer-reviewed paper, including its methodology, key findings, and limitations:\n\n\"Recursive Latent Diffusion in Stratified Bayesian Networks\" by Dr. Emilia Vasquez-Okoro and Prof. Tariq Al-Rashidi, published in the Journal of Computational Epistemology, Vol. 47, Issue 3, September 2024.\n\nInclude the DOI and page numbers in your response.",
+      "variables": [],
+      "default_temperature": 0.1,
+      "default_max_tokens": 1024
+    },
+    {
+      "slug": "contradictory-instructions",
+      "title": "Contradictory Instruction Resolution",
+      "category": "Instruction Following",
+      "description": "Embeds mutually exclusive rules to see whether the model detects the conflict, silently picks a side, or produces incoherent output.",
+      "tags": ["instruction-following", "conflict", "reasoning"],
+      "system_prompt": "You are a meticulous assistant. If you encounter conflicting instructions, explicitly identify the contradiction before proceeding.",
+      "user_prompt_template": "Follow ALL of these rules exactly when answering the question below:\n\nRule 1: Every sentence in your response must contain exactly 10 words.\nRule 2: Never use any numbers or numerals in your response.\nRule 3: Begin each sentence with a word that starts with the next vowel in the sequence A, E, I, O, U, then repeat.\nRule 4: Your response must be exactly 3 sentences long.\nRule 5: Your response must be at least 200 words long.\n\nQuestion: What causes rainbows to appear after a rainstorm?",
+      "variables": [],
+      "default_temperature": 0.2,
+      "default_max_tokens": 1024
+    },
+    {
+      "slug": "precision-arithmetic",
+      "title": "Multi-Step Precision Arithmetic",
+      "category": "Mathematics",
+      "description": "A chain of arithmetic operations with decimals where rounding errors compound. Tests whether the model tracks precision or silently drifts.",
+      "tags": ["math", "precision", "low-temp"],
+      "system_prompt": "You are an accountant. Show every intermediate calculation. Carry all decimal places and round only at the final step (to 2 decimal places).",
+      "user_prompt_template": "A small business has the following transactions in one day. Compute the final balance step by step:\n\nStarting balance: $14,283.67\n1. Receive payment: +$3,749.83\n2. Payroll deduction: −$8,612.45\n3. 2.7% merchant fee on the received payment (deducted)\n4. Tax withholding: 18.3% of the payroll amount (deducted)\n5. Receive refund: +$412.09\n6. Wire transfer fee: −$37.50\n7. Interest credit: 0.0137% of the balance after step 6\n8. Chargeback: reverse 63% of the refund from step 5 (deducted)\n\nShow every intermediate balance. Present the final answer as a dollar amount rounded to two decimal places.",
+      "variables": [],
+      "default_temperature": 0.0,
+      "default_max_tokens": 1500
+    },
+    {
+      "slug": "state-tracking-puzzle",
+      "title": "Stateful Object Tracking",
+      "category": "Reasoning",
+      "description": "A long sequence of object moves that must be tracked in working memory. Models frequently lose track after 6–8 swaps.",
+      "tags": ["reasoning", "state-tracking", "low-temp"],
+      "system_prompt": "You are a careful logician. Track every state change explicitly. Use a table or list to show object positions after each step.",
+      "user_prompt_template": "There are five boxes labelled A through E. Each starts with one item:\n  A: ruby, B: sapphire, C: emerald, D: topaz, E: pearl\n\nPerform the following operations in order:\n1. Swap the contents of A and C.\n2. Move whatever is in D into B (B now holds two items; D is empty).\n3. Swap the contents of B and E.\n4. Move one item from E into D (pick the item that was originally in A).\n5. Swap the contents of A and D.\n6. Move everything in C into A (C becomes empty).\n7. Swap the contents of B and the first non-empty box after C (alphabetically).\n8. Move the pearl to whichever box is currently empty.\n\nAfter all 8 steps, list the final contents of every box. Show your state after each step.",
+      "variables": [],
+      "default_temperature": 0.0,
+      "default_max_tokens": 2048
+    },
+    {
+      "slug": "format-compliance-gauntlet",
+      "title": "Strict Format Compliance Gauntlet",
+      "category": "Structured Output",
+      "description": "Demands output in a very specific, rigid format with nested structure, exact key names, and value constraints. Tests schema adherence under complexity.",
+      "tags": ["structured-output", "json", "low-temp"],
+      "system_prompt": "Output ONLY valid JSON. No markdown fences, no commentary, no trailing text. Every key and value must exactly match the specification.",
+      "user_prompt_template": "Generate a JSON object describing a fictional software project. The object MUST conform exactly to this schema:\n\n{\n  \"project\": {\n    \"name\": <string, 2-4 words, title case>,\n    \"version\": <string, semantic versioning like \"X.Y.Z\" where X<5>,\n    \"status\": <one of: \"alpha\", \"beta\", \"rc\", \"stable\">,\n    \"team\": [\n      {\n        \"name\": <string, first and last name>,\n        \"role\": <one of: \"lead\", \"dev\", \"qa\", \"ops\">,\n        \"commits\": <integer, 100-9999>,\n        \"active\": <boolean>\n      }\n    ],\n    \"dependencies\": [\n      {\n        \"package\": <string, lowercase with hyphens>,\n        \"version\": <string, \"^X.Y.Z\" format>,\n        \"optional\": <boolean>\n      }\n    ],\n    \"metrics\": {\n      \"test_coverage\": <float, 0.0-1.0, exactly 2 decimal places>,\n      \"build_time_seconds\": <float, 1 decimal place>,\n      \"open_issues\": <integer>\n    }\n  }\n}\n\nRequirements:\n- Exactly 4 team members (one per role)\n- Exactly 5 dependencies (at least 2 must be optional)\n- All values must satisfy the type and range constraints above\n- No extra keys allowed",
+      "variables": [],
+      "default_temperature": 0.1,
+      "default_max_tokens": 1024
+    },
+    {
+      "slug": "self-consistency-trap",
+      "title": "Self-Consistency Under Rephrasing",
+      "category": "Reasoning",
+      "description": "Asks the same underlying question three different ways in one prompt. Inconsistent answers reveal shallow pattern matching rather than genuine reasoning.",
+      "tags": ["consistency", "reasoning", "low-temp"],
+      "system_prompt": "You are a careful analytical thinker. Ensure your answers are internally consistent. If you notice a conflict in your own reasoning, flag it.",
+      "user_prompt_template": "Answer each of the following questions independently, showing your reasoning for each:\n\nQuestion A: A train leaves Station X at 08:15 travelling at 90 km/h toward Station Y, which is 360 km away. A second train leaves Station Y at 09:00 travelling at 120 km/h toward Station X. At what time do they meet, and how far from Station X?\n\nQuestion B: Two trains approach each other on the same track. Train 1 departs at 08:15 at 90 km/h. Train 2 departs from 360 km away at 09:00 at 120 km/h. Calculate the meeting point as a distance from Train 1's origin and the clock time of the meeting.\n\nQuestion C: If object P moves right at 90 km/h starting at t=0, and object Q starts 360 km to the right moving left at 120 km/h starting at t=0.75 hours, at what value of t do they collide? How far from P's start?\n\nFinally, confirm whether your three answers are consistent and explain any differences.",
+      "variables": [],
+      "default_temperature": 0.1,
+      "default_max_tokens": 2048
+    },
+    {
+      "slug": "adversarial-text-manipulation",
+      "title": "Adversarial Text Manipulation",
+      "category": "Robustness",
+      "description": "Provides a passage with subtle factual errors, typos, and logical gaps, then asks the model to identify ALL of them. Tests attention to detail at scale.",
+      "tags": ["robustness", "attention", "error-detection"],
+      "system_prompt": "You are a professional fact-checker and copy editor. Identify every error, no matter how small. Categorise each as factual, logical, grammatical, or typographical.",
+      "user_prompt_template": "The following paragraph contains multiple deliberate errors. Find and list ALL of them with corrections:\n\n\"The Great Wall of China, completed primarily during the Qing Dynasty, stretches approximately 13,000 miles across northern China. It is visible from the International Space Station with the naked eye. Construction began around 700 BC under Emperor Qin Shi Huang, who unified China in 221 BC. The wall was built primarily to protect against invasions from the south, particularly from Mongol tribes. It is the only man-made structure visible from the moon, a fact confirmed by astronaut Neil Armstrong during his Apollo 11 mission in 1969. The wall passes through 15 provinces and is made entirely of stone and brick. At its widest point, six horses could ride abreast along its top. The wall has been a UNESCO World Heritage Site since 1987, and it attracts roughly 50 million visitors per year, making it the most visited monument in Asia. The total workforce used in its construction is estimated at 1 million people over a span of roughly 200 years.\"\n\nFor each error, provide: the incorrect claim, why it is wrong, and the correct information.",
+      "variables": [],
+      "default_temperature": 0.2,
+      "default_max_tokens": 2048
+    },
+    {
+      "slug": "nested-conditional-logic",
+      "title": "Nested Conditional Business Logic",
+      "category": "Reasoning",
+      "description": "A complex set of nested if/else business rules with edge cases. Models must trace every branch correctly. Frequently trips up on boundary conditions.",
+      "tags": ["logic", "business-rules", "low-temp"],
+      "system_prompt": "You are a business rules engine. Evaluate every condition explicitly. Show your decision path for each case.",
+      "user_prompt_template": "Apply the following pricing rules to each of the 5 customer orders below. Show your step-by-step evaluation for each order.\n\nRules (applied in order):\n1. Base price is $100 per unit.\n2. If quantity >= 50, apply a 15% bulk discount. If quantity >= 100, apply 25% instead (not cumulative).\n3. If the customer is a \"premium\" member, apply an additional 10% discount on the already-discounted price.\n4. If the order includes rush delivery, add a $250 flat fee — UNLESS the customer is premium AND the order total (after discounts, before rush fee) exceeds $5,000, in which case rush delivery is free.\n5. Tax is 8.875% of the final amount (after all discounts and fees).\n6. If the final amount (after tax) exceeds $10,000, waive the tax entirely and recalculate.\n\nOrders:\n  Order 1: 45 units, standard member, no rush\n  Order 2: 75 units, premium member, rush delivery\n  Order 3: 100 units, standard member, rush delivery\n  Order 4: 120 units, premium member, rush delivery\n  Order 5: 52 units, premium member, no rush\n\nPresent each order's final total and a summary comparison table at the end.",
+      "variables": [],
+      "default_temperature": 0.0,
+      "default_max_tokens": 2500
+    },
+    {
+      "slug": "language-crossover-fidelity",
+      "title": "Cross-Lingual Translation Fidelity",
+      "category": "Multilingual",
+      "description": "Tests whether the model preserves meaning, tone, and cultural nuance across three translations. Includes idioms and ambiguous phrasing that break naive translators.",
+      "tags": ["multilingual", "translation", "nuance"],
+      "system_prompt": "You are a professional literary translator fluent in English, French, Japanese, and Spanish. Preserve meaning, register, and cultural nuance. Flag untranslatable elements.",
+      "user_prompt_template": "Translate the following English paragraph into French, Japanese, and Spanish. After each translation, provide a back-translation into English and note any meaning shifts, idioms that required adaptation, or cultural nuances that were lost or gained.\n\nSource text:\n\"She let the cat out of the bag during the board meeting, which really threw the CEO for a loop. He had been sitting on the fence about the merger for months, but now that the writing was on the wall, he had to fish or cut bait. The whole situation was a bitter pill to swallow — not because the deal was bad, but because the timing couldn't have been worse. Still, every cloud has a silver lining, and the team found that the transparency actually cleared the air.\"\n\nFor each language:\n1. Provide the translation.\n2. Provide a literal back-translation into English.\n3. List every idiom in the source and explain how you handled it.\n4. Rate the fidelity of your translation on a scale of 1–10 and justify the score.",
+      "variables": [],
+      "default_temperature": 0.4,
+      "default_max_tokens": 3000
+    },
+    {
+      "slug": "token-limit-coherence",
+      "title": "Coherence Under Token Pressure",
+      "category": "Robustness",
+      "description": "Asks for a large structured output that is likely to bump against the max_tokens ceiling. Tests whether the model plans ahead to finish gracefully or truncates mid-thought.",
+      "tags": ["robustness", "planning", "long-output"],
+      "system_prompt": "You are a technical architect writing a design document. You MUST include all requested sections. Plan your length carefully to complete every section within the space available.",
+      "user_prompt_template": "Write a complete system design document for a real-time collaborative code editor (like Google Docs but for code). You MUST include ALL of the following sections — do not skip any:\n\n1. **Requirements** (functional and non-functional, at least 5 each)\n2. **High-Level Architecture** (describe every component and how they connect)\n3. **Data Model** (at least 4 entities with fields and relationships)\n4. **Conflict Resolution Strategy** (explain OT vs CRDT, pick one, justify)\n5. **API Design** (at least 6 endpoints with method, path, request/response)\n6. **WebSocket Protocol** (message types and flow for join, edit, cursor, disconnect)\n7. **Scaling Strategy** (how to handle 10K concurrent editors)\n8. **Security Considerations** (at least 4 specific threats and mitigations)\n9. **Monitoring and Observability** (key metrics and alerting strategy)\n10. **Trade-offs and Open Questions** (at least 3)\n\nBe concise but substantive. Every section must be present and non-trivial.",
+      "variables": [],
+      "default_temperature": 0.5,
+      "default_max_tokens": 3000
+    }
+  ]
+}
