@@ -3,5 +3,19 @@
     "allow": [
       "Bash(uv run:*)"
     ]
-  }
+  },
+  "enabledMcpjsonServers": [
+    "python-sdk",
+    "memory-bank",
+    "sequential-thinking",
+    "brave-search",
+    "google-maps",
+    "deep-graph"
+  ],
+  "disabledMcpjsonServers": [
+    "docker",
+    "jupyter",
+    "postgresql",
+    "opik"
+  ]
 }

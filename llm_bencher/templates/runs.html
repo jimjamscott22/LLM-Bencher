@@ -12,7 +12,7 @@
   </p>
 </section>
 
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start;">
+<div style="display:grid;grid-template-columns:2fr 3fr;gap:24px;align-items:start;">
 
   {# ---- Left column: form ---- #}
   <section class="panel">
@@ -123,20 +123,23 @@
   </section>
 
   {# ---- Right column: result ---- #}
-  <section id="result-panel" class="panel" style="display:none;">
-    <div id="result-running" style="display:none;color:var(--muted);font-size:0.95rem;">Running\u2026</div>
-
-    <div id="result-success" style="display:none;">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-        <span class="badge badge-ready">Succeeded</span>
+  <section id="result-panel" class="panel">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <h2 style="margin:0;font-size:1rem;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);">Output</h2>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <span id="result-badge" style="display:none;"></span>
         <span id="result-meta" style="font-size:0.82rem;color:var(--muted);"></span>
+        <a id="result-view-link" href="#" style="display:none;font-size:0.82rem;color:var(--accent);text-decoration:none;">View full run &#8594;</a>
       </div>
-      <pre id="result-output"
-        style="margin:0;white-space:pre-wrap;word-break:break-word;font-family:'Cascadia Mono','Consolas',monospace;font-size:0.88rem;line-height:1.6;background:var(--bg-accent);padding:16px;border-radius:12px;overflow-x:auto;"></pre>
     </div>
 
+    <p id="result-placeholder" style="padding:40px 0;margin:0;text-align:center;color:var(--muted);font-size:0.9rem;font-style:italic;">Run a prompt to see output here.</p>
+
+    <p id="result-running" style="display:none;padding:40px 0;margin:0;text-align:center;color:var(--muted);font-size:0.95rem;">Running\u2026</p>
+
+    <pre id="result-output" style="display:none;margin:0;white-space:pre-wrap;word-break:break-word;font-family:'Cascadia Mono','Consolas',monospace;font-size:0.88rem;line-height:1.6;background:var(--bg-accent);padding:16px;border-radius:12px;overflow-x:auto;min-height:200px;"></pre>
+
     <div id="result-failure" style="display:none;">
-      <span class="badge badge-error" style="margin-bottom:12px;display:inline-block;">Failed</span>
       <p id="result-error" style="margin:0;color:var(--accent);font-size:0.9rem;"></p>
     </div>
   </section>
@@ -289,16 +292,16 @@ promptSelect.addEventListener("change", async function() {
 document.getElementById("run-form").addEventListener("submit", async function(e) {
   e.preventDefault();
   var runBtn = document.getElementById("run-btn");
-  var resultPanel = document.getElementById("result-panel");
   var runningEl = document.getElementById("result-running");
-  var successEl = document.getElementById("result-success");
   var failureEl = document.getElementById("result-failure");
 
   runBtn.disabled = true;
   runBtn.textContent = "Running\u2026";
-  resultPanel.style.display = "block";
+  document.getElementById("result-placeholder").style.display = "none";
+  document.getElementById("result-output").style.display = "none";
+  document.getElementById("result-badge").style.display = "none";
+  document.getElementById("result-view-link").style.display = "none";
   runningEl.style.display = "block";
-  successEl.style.display = "none";
   failureEl.style.display = "none";
 
   var temperature = document.getElementById("temperature").value;
@@ -343,21 +346,35 @@ document.getElementById("run-form").addEventListener("submit", async function(e)
     var data = await resp.json();
 
     runningEl.style.display = "none";
+    var badge = document.getElementById("result-badge");
     if (data.status === "succeeded") {
-      successEl.style.display = "block";
+      document.getElementById("result-output").style.display = "block";
       document.getElementById("result-output").textContent = data.output_text || "";
+      badge.className = "badge badge-ready";
+      badge.textContent = "Succeeded";
+      badge.style.display = "inline-block";
       var parts = [];
       if (data.latency_ms != null) parts.push(data.latency_ms + " ms");
       if (data.total_tokens != null) parts.push(data.total_tokens + " tokens");
       document.getElementById("result-meta").textContent = parts.join(" \u00b7 ");
+      var link = document.getElementById("result-view-link");
+      link.href = "/runs/" + data.run_id;
+      link.style.display = "inline";
     } else {
       failureEl.style.display = "block";
       document.getElementById("result-error").textContent = data.failure_message || "Unknown error";
+      badge.className = "badge badge-error";
+      badge.textContent = "Failed";
+      badge.style.display = "inline-block";
     }
   } catch (err) {
     runningEl.style.display = "none";
     failureEl.style.display = "block";
     document.getElementById("result-error").textContent = "Request failed: " + err.message;
+    var badge = document.getElementById("result-badge");
+    badge.className = "badge badge-error";
+    badge.textContent = "Failed";
+    badge.style.display = "inline-block";
   } finally {
     runBtn.disabled = false;
     runBtn.textContent = "Run prompt";
