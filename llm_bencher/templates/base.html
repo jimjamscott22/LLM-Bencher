@@ -4,7 +4,19 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{{ app_name }}{% block title %}{% endblock %}</title>
+    <link rel="icon" type="image/png" sizes="16x16" href="{{ url_for('static', path='/favicon-API-16x16.png') }}">
+    <link rel="shortcut icon" href="{{ url_for('static', path='/favicon-API-16x16_converted.ico') }}">
     <link rel="stylesheet" href="{{ url_for('static', path='/css/app.css') }}">
+    <script>
+      (function () {
+        try {
+          var saved = localStorage.getItem('llm-bencher-theme');
+          if (saved) {
+            document.documentElement.setAttribute('data-theme', saved);
+          }
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div class="page-shell">
@@ -13,19 +25,142 @@
           <p class="eyebrow">Local Prompt Lab</p>
           <a class="brand" href="{{ url_for('home') }}">{{ app_name }}</a>
         </div>
-        <nav class="nav">
-          <a href="{{ url_for('providers_page') }}">Providers</a>
-          <a href="{{ url_for('prompts_page') }}">Prompt Library</a>
-          <a href="{{ url_for('new_run_page') }}">Run Prompt</a>
-          <a href="{{ url_for('batch_run_page') }}">Batch Run</a>
-          <a href="{{ url_for('history_page') }}">History</a>
-          <a href="{{ url_for('analytics_page') }}">Analytics</a>
-        </nav>
+        <div class="topbar-actions">
+          <nav class="nav">
+            <a href="{{ url_for('providers_page') }}">Providers</a>
+            <a href="{{ url_for('prompts_page') }}">Prompt Library</a>
+            <a href="{{ url_for('new_run_page') }}">Run Prompt</a>
+            <a href="{{ url_for('batch_run_page') }}">Batch Run</a>
+            <a href="{{ url_for('history_page') }}">History</a>
+            <a href="{{ url_for('analytics_page') }}">Analytics</a>
+          </nav>
+          <div class="theme-picker" id="theme-picker" data-open="false">
+            <button
+              type="button"
+              class="theme-picker__button"
+              id="theme-picker-button"
+              aria-haspopup="true"
+              aria-expanded="false"
+              aria-label="Change theme"
+              title="Change theme"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 2a10 10 0 1 0 10 10c0-1.1-.9-2-2-2h-2a2 2 0 1 1 0-4 2 2 0 0 0 2-2c0-2.2-3.6-4-8-4z"/>
+                <circle cx="7.5" cy="10.5" r="1.2" fill="currentColor"/>
+                <circle cx="12"  cy="7.5"  r="1.2" fill="currentColor"/>
+                <circle cx="16.5" cy="10.5" r="1.2" fill="currentColor"/>
+                <circle cx="9"   cy="15"   r="1.2" fill="currentColor"/>
+              </svg>
+            </button>
+            <div class="theme-picker__menu" role="menu" id="theme-picker-menu"></div>
+          </div>
+        </div>
       </header>
 
       <main class="content">
         {% block content %}{% endblock %}
       </main>
     </div>
+
+    <script>
+      (function () {
+        var THEMES = [
+          { id: 'sepia',             name: 'Sepia (Default)', swatch: ['#f4efe6','#ead9c7','#9d4d2f','#2f2419'] },
+          { id: 'vscode-light',      name: 'VS Code Light+',  swatch: ['#ffffff','#f3f3f3','#0066b8','#1e1e1e'] },
+          { id: 'vscode-dark',       name: 'VS Code Dark+',   swatch: ['#1e1e1e','#252526','#569cd6','#4ec9b0'] },
+          { id: 'cursor-dark',       name: 'Cursor Dark',     swatch: ['#181818','#1f1f1f','#8b7fff','#e6e6e6'] },
+          { id: 'monokai',           name: 'Monokai',         swatch: ['#272822','#2d2e27','#f92672','#a6e22e'] },
+          { id: 'solarized-light',   name: 'Solarized Light', swatch: ['#fdf6e3','#eee8d5','#268bd2','#073642'] },
+          { id: 'solarized-dark',    name: 'Solarized Dark',  swatch: ['#002b36','#073642','#268bd2','#2aa198'] },
+          { id: 'dracula',           name: 'Dracula',         swatch: ['#282a36','#44475a','#bd93f9','#50fa7b'] },
+          { id: 'one-dark',          name: 'One Dark Pro',    swatch: ['#282c34','#3e4451','#61afef','#98c379'] },
+          { id: 'one-light',         name: 'One Light',       swatch: ['#fafafa','#e1e1e2','#4078f2','#383a42'] },
+          { id: 'github-light',      name: 'GitHub Light',    swatch: ['#ffffff','#f6f8fa','#0969da','#1f2328'] },
+          { id: 'github-dark',       name: 'GitHub Dark',     swatch: ['#0d1117','#161b22','#58a6ff','#3fb950'] },
+          { id: 'nord',              name: 'Nord',            swatch: ['#2e3440','#3b4252','#88c0d0','#a3be8c'] },
+          { id: 'tokyo-night',       name: 'Tokyo Night',     swatch: ['#1a1b26','#24283b','#7aa2f7','#bb9af7'] },
+          { id: 'gruvbox-dark',      name: 'Gruvbox Dark',    swatch: ['#282828','#3c3836','#fe8019','#b8bb26'] },
+          { id: 'gruvbox-light',     name: 'Gruvbox Light',   swatch: ['#fbf1c7','#f2e5bc','#af3a03','#79740e'] },
+          { id: 'catppuccin-mocha',  name: 'Catppuccin Mocha',swatch: ['#1e1e2e','#313244','#cba6f7','#a6e3a1'] },
+          { id: 'catppuccin-latte',  name: 'Catppuccin Latte',swatch: ['#eff1f5','#ccd0da','#8839ef','#40a02b'] },
+          { id: 'night-owl',         name: 'Night Owl',       swatch: ['#011627','#0b2942','#82aaff','#addb67'] },
+          { id: 'ayu-mirage',        name: 'Ayu Mirage',      swatch: ['#1f2430','#343b48','#ffcc66','#bae67e'] }
+        ];
+
+        var STORAGE_KEY = 'llm-bencher-theme';
+        var root = document.documentElement;
+        var picker = document.getElementById('theme-picker');
+        var button = document.getElementById('theme-picker-button');
+        var menu = document.getElementById('theme-picker-menu');
+
+        function currentTheme() {
+          return root.getAttribute('data-theme') || 'sepia';
+        }
+
+        function applyTheme(id) {
+          root.setAttribute('data-theme', id);
+          try { localStorage.setItem(STORAGE_KEY, id); } catch (e) {}
+          updateChecked();
+        }
+
+        function updateChecked() {
+          var current = currentTheme();
+          menu.querySelectorAll('.theme-picker__option').forEach(function (el) {
+            el.setAttribute('aria-checked', el.dataset.themeId === current ? 'true' : 'false');
+          });
+        }
+
+        function buildMenu() {
+          var frag = document.createDocumentFragment();
+          THEMES.forEach(function (t) {
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'theme-picker__option';
+            btn.setAttribute('role', 'menuitemradio');
+            btn.dataset.themeId = t.id;
+            btn.innerHTML =
+              '<span class="theme-picker__swatch" style="' +
+                '--sw-1:' + t.swatch[0] + ';' +
+                '--sw-2:' + t.swatch[1] + ';' +
+                '--sw-3:' + t.swatch[2] + ';' +
+                '--sw-4:' + t.swatch[3] + ';' +
+              '"></span><span>' + t.name + '</span>';
+            btn.addEventListener('click', function () {
+              applyTheme(t.id);
+              closeMenu();
+            });
+            frag.appendChild(btn);
+          });
+          menu.appendChild(frag);
+          updateChecked();
+        }
+
+        function openMenu() {
+          picker.setAttribute('data-open', 'true');
+          button.setAttribute('aria-expanded', 'true');
+        }
+        function closeMenu() {
+          picker.setAttribute('data-open', 'false');
+          button.setAttribute('aria-expanded', 'false');
+        }
+        function toggleMenu() {
+          if (picker.getAttribute('data-open') === 'true') closeMenu();
+          else openMenu();
+        }
+
+        button.addEventListener('click', function (e) {
+          e.stopPropagation();
+          toggleMenu();
+        });
+        document.addEventListener('click', function (e) {
+          if (!picker.contains(e.target)) closeMenu();
+        });
+        document.addEventListener('keydown', function (e) {
+          if (e.key === 'Escape') closeMenu();
+        });
+
+        buildMenu();
+      })();
+    </script>
   </body>
 </html>
