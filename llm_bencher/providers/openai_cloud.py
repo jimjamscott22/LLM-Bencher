@@ -21,7 +21,7 @@ class OpenAICloudAdapter(OpenAICompatAdapter):
     async def health_check(self) -> ProviderHealth:
         from datetime import datetime, timezone
         try:
-            resp = await self._client.get(
+            resp = await self._get_client().get(
                 f"{self._base_url}/models",
                 headers=self._headers(),
             )
@@ -37,8 +37,7 @@ class OpenAICloudAdapter(OpenAICompatAdapter):
                 checked_at=datetime.now(timezone.utc),
             )
     async def list_models(self) -> list[DiscoveredModel]:
-    async def list_models(self) -> list[DiscoveredModel]:
-        resp = await self._client.get(
+        resp = await self._get_client().get(
             f"{self._base_url}/models",
             headers=self._headers(),
         )
@@ -69,7 +68,7 @@ class OpenAICloudAdapter(OpenAICompatAdapter):
             payload["max_tokens"] = request.max_tokens
 
         start = time.monotonic()
-        resp = await self._client.post(
+        resp = await self._get_client().post(
             f"{self._base_url}/chat/completions",
             json=payload,
             headers=self._headers(),

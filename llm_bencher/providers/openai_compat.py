@@ -21,11 +21,16 @@ class OpenAICompatAdapter(ProviderAdapter):
     def __init__(self, base_url: str, timeout: float) -> None:
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout
-        self._client = httpx.AsyncClient(timeout=self._timeout)
+        self._client: httpx.AsyncClient | None = None
+
+    def _get_client(self) -> httpx.AsyncClient:
+        if self._client is None:
+            self._client = httpx.AsyncClient(timeout=self._timeout)
+        return self._client
 
     async def health_check(self) -> ProviderHealth:
         try:
-            resp = await self._client.get(f"{self._base_url}/models")
+            resp = await self._get_client().get(f"{self._base_url}/models")
             resp.raise_for_status()
             return ProviderHealth(is_available=True, checked_at=_utc_now())
         except Exception as exc:
@@ -36,7 +41,7 @@ class OpenAICompatAdapter(ProviderAdapter):
             )
 
     async def list_models(self) -> list[DiscoveredModel]:
-        resp = await self._client.get(f"{self._base_url}/models")
+        resp = await self._get_client().get(f"{self._base_url}/models")
         resp.raise_for_status()
         data = resp.json()
         return [
@@ -62,7 +67,7 @@ class OpenAICompatAdapter(ProviderAdapter):
             payload["max_tokens"] = request.max_tokens
 
         start = time.monotonic()
-        resp = await self._client.post(
+        resp = await self._get_client().post(
             f"{self._base_url}/chat/completions", json=payload
         )
         resp.raise_for_status()

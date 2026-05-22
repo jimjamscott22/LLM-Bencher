@@ -1008,9 +1008,14 @@ def _csv_stream_response(
 ) -> StreamingResponse:
     """Build a streaming CSV Response."""
     def _iter_csv():
+        rows_iter = iter(rows_iter_factory())
+        first_row = next(rows_iter, None)
+        if first_row is None:
+            return
         writer = csv.DictWriter(_CSVBuffer(), fieldnames=fieldnames)
         yield writer.writeheader()
-        for row in rows_iter_factory():
+        yield writer.writerow(first_row)
+        for row in rows_iter:
             yield writer.writerow(row)
 
     return StreamingResponse(
