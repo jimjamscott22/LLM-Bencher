@@ -7,6 +7,7 @@ from typing import Any
 from sqlalchemy import MetaData, create_engine, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
+from sqlalchemy.schema import CreateIndex
 from sqlalchemy.sql.schema import Column
 
 
@@ -107,6 +108,12 @@ def upgrade_sqlite_schema(database_url: str, *, echo: bool = False) -> None:
             for column in missing_columns:
                 connection.execute(text(_render_sqlite_add_column(column, engine)))
                 inspector = inspect(connection)
+
+            existing_indexes = {index["name"] for index in inspector.get_indexes(table.name)}
+            for index in table.indexes:
+                if index.name and index.name not in existing_indexes:
+                    connection.execute(CreateIndex(index))
+                    existing_indexes.add(index.name)
 
 
 def initialize_database(database_url: str, *, echo: bool = False) -> None:

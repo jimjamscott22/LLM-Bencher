@@ -3,7 +3,8 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timezone
 
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 from llm_bencher.config import Settings
 from llm_bencher.models import (
@@ -44,11 +45,12 @@ async def execute_batch(
         session.commit()
 
     with session_factory() as session:
-        pending_runs = (
-            session.query(Run)
-            .filter(Run.batch_id == batch_id, Run.status == RunStatus.PENDING)
-            .all()
+        pending_runs = session.scalars(
+            select(Run)
+            .options(selectinload(Run.provider))
+            .where(Run.batch_id == batch_id, Run.status == RunStatus.PENDING)
         )
+        pending_runs = pending_runs.all()
         # Build (run_id, adapter, run_request) tuples while session is open.
         tasks: list[tuple[int, object, object]] = []
         for run in pending_runs:
@@ -73,12 +75,23 @@ async def execute_batch(
     completed = 0
     failed = 0
     with session_factory() as session:
+        run_ids = [
+            run_id
+            for item in results
+            if not isinstance(item, Exception)
+            for run_id, _ in [item]
+        ]
+        runs_by_id = {
+            run.id: run
+            for run in session.scalars(select(Run).where(Run.id.in_(run_ids))).all()
+        } if run_ids else {}
+
         for item in results:
             if isinstance(item, Exception):
                 failed += 1
                 continue
             run_id, (result_schema, failure_message, started_at, completed_at) = item
-            run = session.get(Run, run_id)
+            run = runs_by_id.get(run_id)
             if run is None:
                 continue
             status = RunStatus.SUCCEEDED if result_schema else RunStatus.FAILED

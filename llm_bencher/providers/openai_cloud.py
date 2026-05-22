@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import httpx
-
 from llm_bencher.providers.openai_compat import OpenAICompatAdapter
 from llm_bencher.schemas import DiscoveredModel, ProviderHealth, RunRequest, RunResult
 
@@ -23,12 +21,11 @@ class OpenAICloudAdapter(OpenAICompatAdapter):
     async def health_check(self) -> ProviderHealth:
         from datetime import datetime, timezone
         try:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
-                resp = await client.get(
-                    f"{self._base_url}/models",
-                    headers=self._headers(),
-                )
-                resp.raise_for_status()
+            resp = await self._client.get(
+                f"{self._base_url}/models",
+                headers=self._headers(),
+            )
+            resp.raise_for_status()
             return ProviderHealth(
                 is_available=True,
                 checked_at=datetime.now(timezone.utc),
@@ -39,15 +36,14 @@ class OpenAICloudAdapter(OpenAICompatAdapter):
                 detail=str(exc),
                 checked_at=datetime.now(timezone.utc),
             )
-
     async def list_models(self) -> list[DiscoveredModel]:
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            resp = await client.get(
-                f"{self._base_url}/models",
-                headers=self._headers(),
-            )
-            resp.raise_for_status()
-            data = resp.json()
+    async def list_models(self) -> list[DiscoveredModel]:
+        resp = await self._client.get(
+            f"{self._base_url}/models",
+            headers=self._headers(),
+        )
+        resp.raise_for_status()
+        data = resp.json()
         return [
             DiscoveredModel(
                 id=m["id"],
@@ -73,14 +69,13 @@ class OpenAICloudAdapter(OpenAICompatAdapter):
             payload["max_tokens"] = request.max_tokens
 
         start = time.monotonic()
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            resp = await client.post(
-                f"{self._base_url}/chat/completions",
-                json=payload,
-                headers=self._headers(),
-            )
-            resp.raise_for_status()
-            data = resp.json()
+        resp = await self._client.post(
+            f"{self._base_url}/chat/completions",
+            json=payload,
+            headers=self._headers(),
+        )
+        resp.raise_for_status()
+        data = resp.json()
         latency_ms = int((time.monotonic() - start) * 1000)
         choice = data["choices"][0]
         usage = data.get("usage", {})

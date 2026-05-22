@@ -99,10 +99,14 @@ def prompts_page(request: Request) -> HTMLResponse:
 
         # Collect all distinct tags for the filter UI.
         all_tags: set[str] = set()
-        for s in suites:
-            for p in s.prompts:
-                if p.tags:
-                    all_tags.update(p.tags)
+        tags_by_prompt = session.scalars(
+            select(PromptDefinition.tags)
+            .join(PromptSuite)
+            .where(PromptSuite.is_active.is_(True))
+        ).all()
+        for prompt_tags in tags_by_prompt:
+            if prompt_tags:
+                all_tags.update(prompt_tags)
 
         # If a tag filter is active, narrow suites to only those containing
         # at least one prompt with that tag, and filter prompts within each suite.
@@ -259,19 +263,22 @@ def history_page(request: Request) -> HTMLResponse:
 
         # Models for the model filter dropdown (only those with runs).
         models = session.scalars(
-            select(ProviderModel).order_by(ProviderModel.display_name)
+            select(ProviderModel)
+            .join(Run, Run.provider_model_id == ProviderModel.id)
+            .distinct()
+            .order_by(ProviderModel.display_name)
         ).all()
 
         # Collect distinct tags for the tag filter dropdown.
-        all_prompts = session.scalars(
-            select(PromptDefinition)
+        tags_by_prompt = session.scalars(
+            select(PromptDefinition.tags)
             .join(PromptSuite)
             .where(PromptSuite.is_active.is_(True))
         ).all()
         all_tags: set[str] = set()
-        for p in all_prompts:
-            if p.tags:
-                all_tags.update(p.tags)
+        for prompt_tags in tags_by_prompt:
+            if prompt_tags:
+                all_tags.update(prompt_tags)
 
     total_pages = max(1, (total + _PER_PAGE - 1) // _PER_PAGE)
     filters = {

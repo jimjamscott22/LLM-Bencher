@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, DateTime, Enum, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, DateTime, Enum, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from llm_bencher.database import Base
@@ -176,6 +176,14 @@ class BatchRun(TimestampMixin, Base):
 
 class Run(TimestampMixin, Base):
     __tablename__ = "runs"
+    __table_args__ = (
+        Index("ix_runs_created_at", "created_at"),
+        Index("ix_runs_status", "status"),
+        Index("ix_runs_provider_id", "provider_id"),
+        Index("ix_runs_batch_id", "batch_id"),
+        Index("ix_runs_prompt_id", "prompt_id"),
+        Index("ix_runs_model_identifier", "model_identifier"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     provider_id: Mapped[int] = mapped_column(ForeignKey("providers.id"), nullable=False)
@@ -276,4 +284,3 @@ class ComparisonItem(Base):
 
     comparison: Mapped["Comparison"] = relationship(back_populates="items")
     run: Mapped["Run"] = relationship()
-

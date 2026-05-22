@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import csv
 from datetime import datetime, timezone
+from itertools import product
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, UploadFile
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
@@ -85,40 +87,33 @@ async def check_provider(provider_id: int, request: Request) -> JSONResponse:
         provider.last_health_check_at = health.checked_at
         provider.last_error = health.detail if not health.is_available else None
 
-        if discovered:
-            discovered_ids = {dm.id for dm in discovered}
+        existing_models = session.scalars(
+            select(ProviderModel).where(ProviderModel.provider_id == provider_id)
+        ).all()
+        existing_by_external_id = {m.external_id: m for m in existing_models}
+        seen_at = _utc_now()
+        discovered_ids = {dm.id for dm in discovered}
 
-            for dm in discovered:
-                existing = session.scalar(
-                    select(ProviderModel).where(
-                        ProviderModel.provider_id == provider_id,
-                        ProviderModel.external_id == dm.id,
+        for dm in discovered:
+            existing = existing_by_external_id.get(dm.id)
+            if existing:
+                existing.display_name = dm.name
+                existing.is_available = True
+                existing.last_seen_at = seen_at
+            else:
+                session.add(
+                    ProviderModel(
+                        provider_id=provider_id,
+                        external_id=dm.id,
+                        display_name=dm.name,
+                        is_available=True,
+                        last_seen_at=seen_at,
                     )
                 )
-                if existing:
-                    existing.display_name = dm.name
-                    existing.is_available = True
-                    existing.last_seen_at = _utc_now()
-                else:
-                    session.add(
-                        ProviderModel(
-                            provider_id=provider_id,
-                            external_id=dm.id,
-                            display_name=dm.name,
-                            is_available=True,
-                            last_seen_at=_utc_now(),
-                        )
-                    )
 
-            # Mark models no longer returned as unavailable.
-            stale = session.scalars(
-                select(ProviderModel).where(
-                    ProviderModel.provider_id == provider_id,
-                    ProviderModel.external_id.not_in(discovered_ids),
-                )
-            ).all()
-            for m in stale:
-                m.is_available = False
+        for model in existing_models:
+            if model.external_id not in discovered_ids:
+                model.is_available = False
 
         session.flush()
         all_models = session.scalars(
@@ -279,16 +274,16 @@ def list_tags(request: Request) -> JSONResponse:
     """Return distinct tags across all active prompt definitions."""
     session_factory = request.app.state.session_factory
     with session_factory() as session:
-        prompts = session.scalars(
-            select(PromptDefinition)
+        tag_lists = session.scalars(
+            select(PromptDefinition.tags)
             .join(PromptSuite)
             .where(PromptSuite.is_active.is_(True))
         ).all()
 
     tags: set[str] = set()
-    for p in prompts:
-        if p.tags:
-            tags.update(p.tags)
+    for prompt_tags in tag_lists:
+        if prompt_tags:
+            tags.update(prompt_tags)
 
     return JSONResponse(sorted(tags))
 
@@ -700,20 +695,34 @@ async def create_batch(body: BatchCreateBody, request: Request) -> JSONResponse:
     settings = request.app.state.settings
 
     with session_factory() as session:
-        # Validate all prompt IDs exist.
-        for pid in body.prompt_ids:
-            prompt = session.get(PromptDefinition, pid)
-            if prompt is None:
-                raise HTTPException(status_code=404, detail=f"Prompt {pid} not found")
+        prompt_ids = list(dict.fromkeys(body.prompt_ids))
+        prompts = session.scalars(
+            select(PromptDefinition).where(PromptDefinition.id.in_(prompt_ids))
+        ).all()
+        prompts_by_id = {prompt.id: prompt for prompt in prompts}
+        missing_prompt_id = next((pid for pid in prompt_ids if pid not in prompts_by_id), None)
+        if missing_prompt_id is not None:
+            raise HTTPException(status_code=404, detail=f"Prompt {missing_prompt_id} not found")
 
-        # Validate all providers exist.
-        for mt in body.models:
-            provider = session.get(Provider, mt.provider_id)
-            if provider is None:
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Provider {mt.provider_id} not found",
-                )
+        provider_ids = list(dict.fromkeys(mt.provider_id for mt in body.models))
+        providers = session.scalars(
+            select(Provider).where(Provider.id.in_(provider_ids))
+        ).all()
+        found_provider_ids = {provider.id for provider in providers}
+        missing_provider_id = next((pid for pid in provider_ids if pid not in found_provider_ids), None)
+        if missing_provider_id is not None:
+            raise HTTPException(status_code=404, detail=f"Provider {missing_provider_id} not found")
+
+        model_external_ids = list(dict.fromkeys(mt.model_external_id for mt in body.models))
+        provider_models = session.scalars(
+            select(ProviderModel).where(
+                ProviderModel.provider_id.in_(provider_ids),
+                ProviderModel.external_id.in_(model_external_ids),
+            )
+        ).all()
+        provider_model_ids = {
+            (model.provider_id, model.external_id): model.id for model in provider_models
+        }
 
         batch_name = body.name or f"Batch {_utc_now().strftime('%Y-%m-%d %H:%M')}"
         batch = BatchRun(
@@ -726,31 +735,24 @@ async def create_batch(body: BatchCreateBody, request: Request) -> JSONResponse:
         batch_id = batch.id
 
         # Create a Run for each (prompt, model) pair.
-        for pid in body.prompt_ids:
-            prompt = session.get(PromptDefinition, pid)
-            for mt in body.models:
-                pm = session.scalar(
-                    select(ProviderModel).where(
-                        ProviderModel.provider_id == mt.provider_id,
-                        ProviderModel.external_id == mt.model_external_id,
-                    )
+        for pid, mt in product(body.prompt_ids, body.models):
+            prompt = prompts_by_id[pid]
+            session.add(
+                Run(
+                    batch_id=batch_id,
+                    provider_id=mt.provider_id,
+                    provider_model_id=provider_model_ids.get((mt.provider_id, mt.model_external_id)),
+                    prompt_id=pid,
+                    status=RunStatus.PENDING,
+                    model_identifier=mt.model_external_id,
+                    model_name=mt.model_name or mt.model_external_id,
+                    system_prompt=prompt.system_prompt or body.system_prompt,
+                    user_prompt=prompt.user_prompt_template,
+                    temperature=body.temperature or prompt.default_temperature,
+                    max_tokens=body.max_tokens or prompt.default_max_tokens,
+                    template_inputs={},
                 )
-                session.add(
-                    Run(
-                        batch_id=batch_id,
-                        provider_id=mt.provider_id,
-                        provider_model_id=pm.id if pm else None,
-                        prompt_id=pid,
-                        status=RunStatus.PENDING,
-                        model_identifier=mt.model_external_id,
-                        model_name=mt.model_name or mt.model_external_id,
-                        system_prompt=prompt.system_prompt or body.system_prompt,
-                        user_prompt=prompt.user_prompt_template,
-                        temperature=body.temperature or prompt.default_temperature,
-                        max_tokens=body.max_tokens or prompt.default_max_tokens,
-                        template_inputs={},
-                    )
-                )
+            )
         session.commit()
 
     # Execute the batch asynchronously.
@@ -994,24 +996,25 @@ def get_provider_models(provider_id: int, request: Request) -> JSONResponse:
 # CSV Export
 # ---------------------------------------------------------------------------
 
-import csv
-import io
+class _CSVBuffer:
+    def write(self, value: str) -> str:
+        return value
 
 
-def _csv_response(rows: list[dict], filename: str) -> Response:
-    """Build a CSV Response from a list of dicts (keys = headers)."""
-    if not rows:
-        return Response(
-            content="",
-            media_type="text/csv",
-            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-        )
-    output = io.StringIO()
-    writer = csv.DictWriter(output, fieldnames=list(rows[0].keys()))
-    writer.writeheader()
-    writer.writerows(rows)
-    return Response(
-        content=output.getvalue(),
+def _csv_stream_response(
+    filename: str,
+    fieldnames: list[str],
+    rows_iter_factory,
+) -> StreamingResponse:
+    """Build a streaming CSV Response."""
+    def _iter_csv():
+        writer = csv.DictWriter(_CSVBuffer(), fieldnames=fieldnames)
+        yield writer.writeheader()
+        for row in rows_iter_factory():
+            yield writer.writerow(row)
+
+    return StreamingResponse(
+        _iter_csv(),
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
@@ -1025,39 +1028,43 @@ def export_history(request: Request) -> Response:
     filter_provider_id = params.get("provider_id", "")
     filter_status = params.get("status", "")
 
-    with session_factory() as session:
-        q = (
-            select(Run)
-            .options(
-                selectinload(Run.provider),
-                selectinload(Run.prompt),
-                selectinload(Run.result),
-                selectinload(Run.rating),
+    fieldnames = [
+        "run_id", "date", "provider", "model", "prompt",
+        "status", "latency_ms", "total_tokens", "rating", "output",
+    ]
+
+    def _rows():
+        with session_factory() as session:
+            q = (
+                select(Run)
+                .options(
+                    selectinload(Run.provider),
+                    selectinload(Run.prompt),
+                    selectinload(Run.result),
+                    selectinload(Run.rating),
+                )
             )
-        )
-        if filter_provider_id:
-            q = q.where(Run.provider_id == int(filter_provider_id))
-        if filter_status:
-            q = q.where(Run.status == filter_status)
-        q = q.order_by(Run.created_at.desc())
+            if filter_provider_id:
+                q = q.where(Run.provider_id == int(filter_provider_id))
+            if filter_status:
+                q = q.where(Run.status == filter_status)
+            q = q.order_by(Run.created_at.desc())
 
-        runs = session.scalars(q).all()
-        rows = []
-        for r in runs:
-            rows.append({
-                "run_id": r.id,
-                "date": r.created_at.isoformat() if r.created_at else "",
-                "provider": r.provider.name if r.provider else "",
-                "model": r.model_identifier,
-                "prompt": r.prompt.title if r.prompt else "ad-hoc",
-                "status": r.status.value,
-                "latency_ms": r.result.latency_ms if r.result else "",
-                "total_tokens": r.result.total_tokens if r.result else "",
-                "rating": r.rating.score if r.rating else "",
-                "output": r.result.raw_output_text if r.result else "",
-            })
+            for r in session.scalars(q):
+                yield {
+                    "run_id": r.id,
+                    "date": r.created_at.isoformat() if r.created_at else "",
+                    "provider": r.provider.name if r.provider else "",
+                    "model": r.model_identifier,
+                    "prompt": r.prompt.title if r.prompt else "ad-hoc",
+                    "status": r.status.value,
+                    "latency_ms": r.result.latency_ms if r.result else "",
+                    "total_tokens": r.result.total_tokens if r.result else "",
+                    "rating": r.rating.score if r.rating else "",
+                    "output": r.result.raw_output_text if r.result else "",
+                }
 
-    return _csv_response(rows, "history.csv")
+    return _csv_stream_response("history.csv", fieldnames, _rows)
 
 
 @router.get("/export/batch/{batch_id}")
@@ -1069,31 +1076,36 @@ def export_batch(batch_id: int, request: Request) -> Response:
         if batch is None:
             raise HTTPException(status_code=404, detail="Batch not found")
 
-        runs = session.scalars(
-            select(Run)
-            .options(
-                selectinload(Run.provider),
-                selectinload(Run.prompt),
-                selectinload(Run.result),
+    fieldnames = [
+        "run_id", "provider", "model", "prompt",
+        "status", "latency_ms", "total_tokens", "output",
+    ]
+
+    def _rows():
+        with session_factory() as session:
+            runs = session.scalars(
+                select(Run)
+                .options(
+                    selectinload(Run.provider),
+                    selectinload(Run.prompt),
+                    selectinload(Run.result),
+                )
+                .where(Run.batch_id == batch_id)
+                .order_by(Run.id)
             )
-            .where(Run.batch_id == batch_id)
-            .order_by(Run.id)
-        ).all()
+            for r in runs:
+                yield {
+                    "run_id": r.id,
+                    "provider": r.provider.name if r.provider else "",
+                    "model": r.model_identifier,
+                    "prompt": r.prompt.title if r.prompt else "ad-hoc",
+                    "status": r.status.value,
+                    "latency_ms": r.result.latency_ms if r.result else "",
+                    "total_tokens": r.result.total_tokens if r.result else "",
+                    "output": r.result.raw_output_text if r.result else "",
+                }
 
-        rows = []
-        for r in runs:
-            rows.append({
-                "run_id": r.id,
-                "provider": r.provider.name if r.provider else "",
-                "model": r.model_identifier,
-                "prompt": r.prompt.title if r.prompt else "ad-hoc",
-                "status": r.status.value,
-                "latency_ms": r.result.latency_ms if r.result else "",
-                "total_tokens": r.result.total_tokens if r.result else "",
-                "output": r.result.raw_output_text if r.result else "",
-            })
-
-    return _csv_response(rows, f"batch-{batch_id}.csv")
+    return _csv_stream_response(f"batch-{batch_id}.csv", fieldnames, _rows)
 
 
 @router.get("/export/comparison/{comparison_id}")
@@ -1101,30 +1113,39 @@ def export_comparison(comparison_id: int, request: Request) -> Response:
     """Export comparison results as CSV."""
     session_factory = request.app.state.session_factory
     with session_factory() as session:
-        comparison = session.scalar(
-            select(Comparison)
-            .options(
-                selectinload(Comparison.items).selectinload(ComparisonItem.run).selectinload(Run.provider),
-                selectinload(Comparison.items).selectinload(ComparisonItem.run).selectinload(Run.prompt),
-                selectinload(Comparison.items).selectinload(ComparisonItem.run).selectinload(Run.result),
-            )
-            .where(Comparison.id == comparison_id)
-        )
+        comparison = session.get(Comparison, comparison_id)
         if comparison is None:
             raise HTTPException(status_code=404, detail="Comparison not found")
 
-        rows = []
-        for item in comparison.items:
-            r = item.run
-            rows.append({
-                "position": item.position,
-                "run_id": r.id,
-                "provider": r.provider.name if r.provider else "",
-                "model": r.model_identifier,
-                "status": r.status.value,
-                "latency_ms": r.result.latency_ms if r.result else "",
-                "total_tokens": r.result.total_tokens if r.result else "",
-                "output": r.result.raw_output_text if r.result else "",
-            })
+    fieldnames = [
+        "position", "run_id", "provider", "model",
+        "status", "latency_ms", "total_tokens", "output",
+    ]
 
-    return _csv_response(rows, f"comparison-{comparison_id}.csv")
+    def _rows():
+        with session_factory() as session:
+            comparison = session.scalar(
+                select(Comparison)
+                .options(
+                    selectinload(Comparison.items).selectinload(ComparisonItem.run).selectinload(Run.provider),
+                    selectinload(Comparison.items).selectinload(ComparisonItem.run).selectinload(Run.prompt),
+                    selectinload(Comparison.items).selectinload(ComparisonItem.run).selectinload(Run.result),
+                )
+                .where(Comparison.id == comparison_id)
+            )
+            if comparison is None:
+                return
+            for item in comparison.items:
+                r = item.run
+                yield {
+                    "position": item.position,
+                    "run_id": r.id,
+                    "provider": r.provider.name if r.provider else "",
+                    "model": r.model_identifier,
+                    "status": r.status.value,
+                    "latency_ms": r.result.latency_ms if r.result else "",
+                    "total_tokens": r.result.total_tokens if r.result else "",
+                    "output": r.result.raw_output_text if r.result else "",
+                }
+
+    return _csv_stream_response(f"comparison-{comparison_id}.csv", fieldnames, _rows)
