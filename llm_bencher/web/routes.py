@@ -3,9 +3,9 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, defer, selectinload
 
-from llm_bencher.models import BatchRun, Comparison, ComparisonItem, PromptDefinition, Provider, ProviderKind, ProviderModel, PromptSuite, Run, RunRating, RunStatus
+from llm_bencher.models import BatchRun, Comparison, ComparisonItem, PromptDefinition, Provider, ProviderKind, ProviderModel, PromptSuite, Run, RunRating, RunResult, RunStatus
 
 
 router = APIRouter()
@@ -247,7 +247,12 @@ def history_page(request: Request) -> HTMLResponse:
                 selectinload(Run.provider),
                 selectinload(Run.provider_model),
                 selectinload(Run.prompt),
-                selectinload(Run.result),
+                # The list view only shows truncated output text, latency and
+                # token totals — skip the heavy JSON blobs for every row.
+                selectinload(Run.result).options(
+                    defer(RunResult.raw_payload),
+                    defer(RunResult.response_metadata),
+                ),
                 selectinload(Run.rating),
             )
             .order_by(Run.created_at.desc())
@@ -262,16 +267,17 @@ def history_page(request: Request) -> HTMLResponse:
             select(ProviderModel).order_by(ProviderModel.display_name)
         ).all()
 
-        # Collect distinct tags for the tag filter dropdown.
-        all_prompts = session.scalars(
-            select(PromptDefinition)
+        # Collect distinct tags for the tag filter dropdown. Fetch only the
+        # tags JSON column rather than hydrating full PromptDefinition rows.
+        tag_lists = session.scalars(
+            select(PromptDefinition.tags)
             .join(PromptSuite)
             .where(PromptSuite.is_active.is_(True))
         ).all()
         all_tags: set[str] = set()
-        for p in all_prompts:
-            if p.tags:
-                all_tags.update(p.tags)
+        for tags in tag_lists:
+            if tags:
+                all_tags.update(tags)
 
     total_pages = max(1, (total + _PER_PAGE - 1) // _PER_PAGE)
     filters = {
