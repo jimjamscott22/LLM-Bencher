@@ -4,7 +4,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
 
-from sqlalchemy import MetaData, create_engine, inspect, text
+from sqlalchemy import MetaData, create_engine, event, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 from sqlalchemy.sql.schema import Column
@@ -34,12 +34,35 @@ def get_engine(database_url: str, *, echo: bool = False) -> Engine:
         if database_url.startswith("sqlite"):
             connect_args["check_same_thread"] = False
 
-        _engines[cache_key] = create_engine(
+        engine = create_engine(
             database_url,
             connect_args=connect_args,
             echo=echo,
         )
+        if database_url.startswith("sqlite"):
+            _configure_sqlite_pragmas(engine)
+        _engines[cache_key] = engine
     return _engines[cache_key]
+
+
+def _configure_sqlite_pragmas(engine: Engine) -> None:
+    """Tune SQLite for concurrent reads/writes.
+
+    WAL mode lets readers proceed while a writer holds the database, busy_timeout
+    avoids immediate "database is locked" errors under batch concurrency, and
+    synchronous=NORMAL is the recommended durability/throughput tradeoff for WAL.
+    """
+
+    @event.listens_for(engine, "connect")
+    def _set_pragmas(dbapi_connection: Any, _connection_record: Any) -> None:
+        cursor = dbapi_connection.cursor()
+        try:
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA synchronous=NORMAL")
+            cursor.execute("PRAGMA busy_timeout=5000")
+            cursor.execute("PRAGMA foreign_keys=ON")
+        finally:
+            cursor.close()
 
 
 def get_session_factory(database_url: str, *, echo: bool = False) -> sessionmaker[Session]:
@@ -107,6 +130,11 @@ def upgrade_sqlite_schema(database_url: str, *, echo: bool = False) -> None:
             for column in missing_columns:
                 connection.execute(text(_render_sqlite_add_column(column, engine)))
                 inspector = inspect(connection)
+
+            existing_indexes = {idx["name"] for idx in inspector.get_indexes(table.name)}
+            for index in table.indexes:
+                if index.name not in existing_indexes:
+                    index.create(bind=connection)
 
 
 def initialize_database(database_url: str, *, echo: bool = False) -> None:

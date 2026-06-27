@@ -43,23 +43,31 @@ def analytics_summary(request: Request) -> JSONResponse:
     """Overall stats for dashboard header."""
     session_factory = request.app.state.session_factory
     with session_factory() as session:
-        total_runs = session.scalar(select(func.count()).select_from(Run)) or 0
-        succeeded = session.scalar(
-            select(func.count()).select_from(Run).where(Run.status == RunStatus.SUCCEEDED)
-        ) or 0
-        failed = session.scalar(
-            select(func.count()).select_from(Run).where(Run.status == RunStatus.FAILED)
-        ) or 0
-        avg_latency = session.scalar(
-            select(func.avg(RunResult.latency_ms)).where(RunResult.latency_ms.isnot(None))
+        # Run counts by status in a single grouped scan.
+        status_counts = dict(
+            session.execute(
+                select(Run.status, func.count()).group_by(Run.status)
+            ).all()
         )
-        total_tokens = session.scalar(
-            select(func.sum(RunResult.total_tokens)).where(RunResult.total_tokens.isnot(None))
-        ) or 0
-        rated_runs = session.scalar(select(func.count()).select_from(RunRating)) or 0
-        batch_count = session.scalar(select(func.count()).select_from(BatchRun)) or 0
-        comparison_count = session.scalar(select(func.count()).select_from(Comparison)) or 0
-        provider_count = session.scalar(select(func.count()).select_from(Provider)) or 0
+        total_runs = sum(status_counts.values())
+        succeeded = status_counts.get(RunStatus.SUCCEEDED, 0)
+        failed = status_counts.get(RunStatus.FAILED, 0)
+
+        # RunResult aggregates in one pass (avg/sum already skip NULLs).
+        avg_latency, total_tokens = session.execute(
+            select(func.avg(RunResult.latency_ms), func.sum(RunResult.total_tokens))
+        ).one()
+        total_tokens = total_tokens or 0
+
+        # Standalone table counts via scalar subqueries in one round-trip.
+        rated_runs, batch_count, comparison_count, provider_count = session.execute(
+            select(
+                select(func.count()).select_from(RunRating).scalar_subquery(),
+                select(func.count()).select_from(BatchRun).scalar_subquery(),
+                select(func.count()).select_from(Comparison).scalar_subquery(),
+                select(func.count()).select_from(Provider).scalar_subquery(),
+            )
+        ).one()
 
     success_rate = (succeeded / total_runs * 100) if total_runs > 0 else 0.0
 

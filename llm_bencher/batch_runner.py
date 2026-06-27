@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timezone
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import selectinload
 
 from llm_bencher.config import Settings
 from llm_bencher.models import (
@@ -13,6 +13,7 @@ from llm_bencher.models import (
     RunResult as RunResultModel,
     RunStatus,
 )
+from llm_bencher.providers.base import ProviderAdapter
 from llm_bencher.providers.registry import get_adapter
 from llm_bencher.runner import build_run_request, execute_adapter
 
@@ -46,14 +47,20 @@ async def execute_batch(
     with session_factory() as session:
         pending_runs = (
             session.query(Run)
+            .options(selectinload(Run.provider))
             .filter(Run.batch_id == batch_id, Run.status == RunStatus.PENDING)
             .all()
         )
         # Build (run_id, adapter, run_request) tuples while session is open.
+        # One adapter per provider so runs sharing a provider reuse its pooled
+        # HTTP connection instead of re-handshaking on every request.
+        adapters: dict[int, ProviderAdapter] = {}
         tasks: list[tuple[int, object, object]] = []
         for run in pending_runs:
-            provider = run.provider
-            adapter = get_adapter(provider, settings)
+            adapter = adapters.get(run.provider_id)
+            if adapter is None:
+                adapter = get_adapter(run.provider, settings)
+                adapters[run.provider_id] = adapter
             run_request = build_run_request(run)
             tasks.append((run.id, adapter, run_request))
 
@@ -64,10 +71,14 @@ async def execute_batch(
         async with sem:
             return run_id, await execute_adapter(adapter, run_request)
 
-    results = await asyncio.gather(
-        *[_run_one(rid, a, rr) for rid, a, rr in tasks],
-        return_exceptions=True,
-    )
+    try:
+        results = await asyncio.gather(
+            *[_run_one(rid, a, rr) for rid, a, rr in tasks],
+            return_exceptions=True,
+        )
+    finally:
+        for adapter in adapters.values():
+            await adapter.aclose()
 
     # Phase 3: persist outcomes.
     completed = 0

@@ -72,8 +72,9 @@ async def check_provider(provider_id: int, request: Request) -> JSONResponse:
         adapter = get_adapter(provider, settings)
 
     # Phase 2: async network I/O — no session is open here.
-    health = await adapter.health_check()
-    discovered = await adapter.list_models() if health.is_available else []
+    async with adapter:
+        health = await adapter.health_check()
+        discovered = await adapter.list_models() if health.is_available else []
 
     # Phase 3: persist results synchronously.
     with session_factory() as session:
@@ -521,9 +522,10 @@ async def create_run(body: RunCreateBody, request: Request) -> JSONResponse:
         session.commit()
 
     # Phase 2: async execution — no session held open.
-    result_schema, failure_message, started_at, completed_at = await execute_adapter(
-        adapter, run_request
-    )
+    async with adapter:
+        result_schema, failure_message, started_at, completed_at = await execute_adapter(
+            adapter, run_request
+        )
     status = RunStatus.SUCCEEDED if result_schema else RunStatus.FAILED
 
     # Phase 3: persist outcome.
