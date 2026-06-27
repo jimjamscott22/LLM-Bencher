@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, DateTime, Enum, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, DateTime, Enum, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from llm_bencher.database import Base
@@ -176,18 +176,30 @@ class BatchRun(TimestampMixin, Base):
 
 class Run(TimestampMixin, Base):
     __tablename__ = "runs"
+    __table_args__ = (
+        # Covers history ORDER BY created_at DESC with a status filter, and the
+        # analytics status/created_at filters. The leading status column also
+        # serves the batch_runner's status lookups.
+        Index("ix_runs_status_created_at", "status", "created_at"),
+        # Standalone created_at index for unfiltered history ordering.
+        Index("ix_runs_created_at", "created_at"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    provider_id: Mapped[int] = mapped_column(ForeignKey("providers.id"), nullable=False)
-    provider_model_id: Mapped[int | None] = mapped_column(ForeignKey("provider_models.id"))
+    provider_id: Mapped[int] = mapped_column(
+        ForeignKey("providers.id"), nullable=False, index=True
+    )
+    provider_model_id: Mapped[int | None] = mapped_column(
+        ForeignKey("provider_models.id"), index=True
+    )
     prompt_id: Mapped[int | None] = mapped_column(ForeignKey("prompt_definitions.id"))
-    batch_id: Mapped[int | None] = mapped_column(ForeignKey("batch_runs.id"))
+    batch_id: Mapped[int | None] = mapped_column(ForeignKey("batch_runs.id"), index=True)
     status: Mapped[RunStatus] = mapped_column(
         Enum(RunStatus),
         default=RunStatus.PENDING,
         nullable=False,
     )
-    model_identifier: Mapped[str] = mapped_column(String(255), nullable=False)
+    model_identifier: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     model_name: Mapped[str | None] = mapped_column(String(255))
     system_prompt: Mapped[str | None] = mapped_column(Text)
     user_prompt: Mapped[str] = mapped_column(Text, nullable=False)
