@@ -15,8 +15,10 @@ from llm_bencher.schemas import DiscoveredModel, ProviderHealth, RunRequest
 # Helpers
 # ---------------------------------------------------------------------------
 
-_LMS_PATCH = "llm_bencher.providers.openai_compat.httpx.AsyncClient"
-_OLLAMA_PATCH = "llm_bencher.providers.ollama.httpx.AsyncClient"
+# Adapters share a single pooled client created in the base class, so the
+# httpx.AsyncClient is patched there for all adapter kinds.
+_LMS_PATCH = "llm_bencher.providers.base.httpx.AsyncClient"
+_OLLAMA_PATCH = "llm_bencher.providers.base.httpx.AsyncClient"
 
 
 def _make_httpx_response(status_code: int, json_body: dict) -> MagicMock:

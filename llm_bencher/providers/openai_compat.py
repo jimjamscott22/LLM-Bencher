@@ -3,8 +3,6 @@ from __future__ import annotations
 import time
 from datetime import datetime, timezone
 
-import httpx
-
 from llm_bencher.providers.base import ProviderAdapter
 from llm_bencher.schemas import DiscoveredModel, ProviderHealth, RunRequest, RunResult
 
@@ -18,15 +16,10 @@ class OpenAICompatAdapter(ProviderAdapter):
 
     provider_slug: str = "openai-compat"
 
-    def __init__(self, base_url: str, timeout: float) -> None:
-        self._base_url = base_url.rstrip("/")
-        self._timeout = timeout
-
     async def health_check(self) -> ProviderHealth:
         try:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
-                resp = await client.get(f"{self._base_url}/models")
-                resp.raise_for_status()
+            resp = await self._get_client().get(f"{self._base_url}/models")
+            resp.raise_for_status()
             return ProviderHealth(is_available=True, checked_at=_utc_now())
         except Exception as exc:
             return ProviderHealth(
@@ -36,10 +29,9 @@ class OpenAICompatAdapter(ProviderAdapter):
             )
 
     async def list_models(self) -> list[DiscoveredModel]:
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            resp = await client.get(f"{self._base_url}/models")
-            resp.raise_for_status()
-            data = resp.json()
+        resp = await self._get_client().get(f"{self._base_url}/models")
+        resp.raise_for_status()
+        data = resp.json()
         return [
             DiscoveredModel(
                 id=m["id"],
@@ -63,12 +55,11 @@ class OpenAICompatAdapter(ProviderAdapter):
             payload["max_tokens"] = request.max_tokens
 
         start = time.monotonic()
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            resp = await client.post(
-                f"{self._base_url}/chat/completions", json=payload
-            )
-            resp.raise_for_status()
-            data = resp.json()
+        resp = await self._get_client().post(
+            f"{self._base_url}/chat/completions", json=payload
+        )
+        resp.raise_for_status()
+        data = resp.json()
         latency_ms = int((time.monotonic() - start) * 1000)
         choice = data["choices"][0]
         usage = data.get("usage", {})
