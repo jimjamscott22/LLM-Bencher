@@ -28,7 +28,7 @@ uv sync
 uv run python -m llm_bencher
 ```
 
-Open [http://127.0.0.1:8000](http://127.0.0.1:8000) in your browser.
+Open [http://127.0.0.1:8099](http://127.0.0.1:8099) in your browser.
 
 ## Usage
 
@@ -51,8 +51,25 @@ All settings configurable via environment variables (prefix `LLM_BENCHER_`):
 | `LLM_BENCHER_OPENAI_API_KEY` | *(empty)* | OpenAI API key for cloud provider |
 | `LLM_BENCHER_OPENAI_BASE_URL` | `https://api.openai.com/v1` | OpenAI API base URL |
 | `LLM_BENCHER_DATA_DIR` | `./data` | Data directory for SQLite DB and prompt suites |
-| `LLM_BENCHER_PROVIDER_TIMEOUT` | `30.0` | HTTP timeout (seconds) for provider calls |
+| `LLM_BENCHER_PROVIDER_TIMEOUT` | `30.0` | HTTP timeout (seconds) for cloud and OpenAI-compatible provider calls |
+| `LLM_BENCHER_LOCAL_PROVIDER_TIMEOUT` | `300.0` | HTTP timeout (seconds) for local providers (LM Studio, Ollama) |
 | `LLM_BENCHER_SQLITE_ECHO` | `false` | Enable SQL query logging |
+
+### Provider timeouts
+
+Local models (LM Studio, Ollama) often need longer than cloud APIs — especially for reasoning models or high `max_tokens` prompts. LLM Bencher uses a **5-minute default** for local providers and **30 seconds** for cloud/OpenAI-compatible endpoints.
+
+If a run fails near the timeout limit, you will see an error like `Provider request timed out after 300s`. Increase the relevant setting and restart the server:
+
+```bash
+# Longer timeout for LM Studio / Ollama (10 minutes)
+LLM_BENCHER_LOCAL_PROVIDER_TIMEOUT=600 uv run python -m llm_bencher
+
+# Longer timeout for OpenAI / remote APIs
+LLM_BENCHER_PROVIDER_TIMEOUT=120 uv run python -m llm_bencher
+```
+
+**Reasoning models** (e.g. Qwen 3.5) may spend a long time in internal "thinking" before producing visible output. If generation is still in progress when the timeout fires, LM Studio logs will show `Client disconnected. Stopping generation...` while LLM Bencher records a failed run.
 
 ## Testing
 

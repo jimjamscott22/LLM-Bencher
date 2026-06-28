@@ -22,6 +22,10 @@ class ProviderAdapter(ABC):
         self._default_headers = default_headers or {}
         self._client: httpx.AsyncClient | None = None
 
+    @property
+    def timeout_seconds(self) -> float:
+        return self._timeout
+
     def _get_client(self) -> httpx.AsyncClient:
         """Return a lazily-created, reusable client with keep-alive pooling.
 

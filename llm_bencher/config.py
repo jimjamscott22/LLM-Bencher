@@ -39,6 +39,7 @@ class Settings:
     port: int = 8000
     sqlite_echo: bool = False
     provider_timeout_seconds: float = 30.0
+    local_provider_timeout_seconds: float = 300.0
     data_dir: Path = PROJECT_ROOT / "data"
     database_path: Path = PROJECT_ROOT / "data" / "llm_bencher.db"
     prompt_library_dir: Path = PROJECT_ROOT / "data" / "prompt_suites"
@@ -59,6 +60,10 @@ class Settings:
             port=int(os.getenv("LLM_BENCHER_PORT", "8099")),
             sqlite_echo=_env_flag("LLM_BENCHER_SQLITE_ECHO", False),
             provider_timeout_seconds=_env_float("LLM_BENCHER_PROVIDER_TIMEOUT", 30.0),
+            local_provider_timeout_seconds=_env_float(
+                "LLM_BENCHER_LOCAL_PROVIDER_TIMEOUT",
+                300.0,
+            ),
             data_dir=data_dir,
             database_path=_env_path(
                 "LLM_BENCHER_DB_PATH",

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import httpx
+
 from llm_bencher.models import Run
 from llm_bencher.providers.base import ProviderAdapter
 from llm_bencher.schemas import RunRequest
@@ -10,6 +12,30 @@ from llm_bencher.schemas import RunResult as RunResultSchema
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _format_timeout_label(seconds: float) -> str:
+    if seconds == int(seconds):
+        return str(int(seconds))
+    return str(seconds)
+
+
+def format_adapter_error(
+    exc: Exception,
+    *,
+    timeout_seconds: float | None = None,
+) -> str:
+    """Turn adapter exceptions into user-facing failure messages."""
+    if isinstance(exc, httpx.TimeoutException):
+        if timeout_seconds is not None:
+            label = _format_timeout_label(timeout_seconds)
+            return f"Provider request timed out after {label}s"
+        return "Provider request timed out"
+
+    message = str(exc).strip()
+    if message:
+        return message
+    return type(exc).__name__
 
 
 def build_run_request(run: Run) -> RunRequest:
@@ -42,4 +68,9 @@ async def execute_adapter(
         result = await adapter.run_chat(run_request)
         return result, None, started_at, _utc_now()
     except Exception as exc:
-        return None, str(exc), started_at, _utc_now()
+        return (
+            None,
+            format_adapter_error(exc, timeout_seconds=adapter.timeout_seconds),
+            started_at,
+            _utc_now(),
+        )

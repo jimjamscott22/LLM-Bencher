@@ -9,9 +9,18 @@ from llm_bencher.providers.openai_cloud import OpenAICloudAdapter
 from llm_bencher.providers.openai_compat import OpenAICompatAdapter
 
 
+def provider_timeout_seconds(provider: Provider, settings: Settings) -> float:
+    """Return the HTTP timeout for a provider kind."""
+    match provider.kind:
+        case ProviderKind.LM_STUDIO | ProviderKind.OLLAMA:
+            return settings.local_provider_timeout_seconds
+        case _:
+            return settings.provider_timeout_seconds
+
+
 def get_adapter(provider: Provider, settings: Settings) -> ProviderAdapter:
     """Return the correct adapter instance for a Provider ORM row."""
-    timeout = settings.provider_timeout_seconds
+    timeout = provider_timeout_seconds(provider, settings)
     api_key = provider.api_key or ""
     match provider.kind:
         case ProviderKind.LM_STUDIO:
