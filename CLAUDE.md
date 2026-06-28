@@ -12,7 +12,7 @@ LLM-Bencher is a FastAPI web application for testing and benchmarking LLM servic
 # Install dependencies
 uv sync
 
-# Run the development server (default: http://127.0.0.1:8000)
+# Run the development server (default: http://127.0.0.1:8099)
 uv run python -m llm_bencher
 
 # Run all tests
@@ -42,6 +42,7 @@ Python 3.12+ required. Package manager is `uv` (not pip).
   - `ollama.py`: Ollama native API adapter
   - `openai_cloud.py`: OpenAI cloud adapter with Bearer auth (extends OpenAICompat)
   - `registry.py`: Routes `ProviderKind` to correct adapter class
+- `runner.py`: `execute_adapter()` + `format_adapter_error()` — never raises; maps httpx timeouts to user-facing messages
 - `web/api.py`: JSON API endpoints — provider CRUD, health checks, runs, ratings, batches, comparisons, tags, suite import/export, CSV export
 - `web/analytics_api.py`: Analytics endpoints — summary, latency, tokens, success-rate, timeline
 - `web/routes.py`: Jinja2-rendered pages (home, providers, prompts, runs, batch, history, analytics, compare)
@@ -59,7 +60,7 @@ Python 3.12+ required. Package manager is `uv` (not pip).
 
 ## Testing
 
-209 tests across 12 test files. Tests use temporary SQLite databases created in `.test-tmp/` per test case. Key fixtures in `tests/conftest.py`:
+220 tests across 13 test files. Tests use temporary SQLite databases created in `.test-tmp/` per test case. Key fixtures in `tests/conftest.py`:
 - `test_settings`: isolated `Settings` pointing to temp directory
 - `client`: FastAPI `TestClient` wired to test settings
 
@@ -79,6 +80,7 @@ Test files:
 - `test_export.py`: CSV export for history, batch, comparison
 - `test_integration.py`: End-to-end pipelines
 - `test_edge_cases.py`: Unicode, long content, boundary conditions
+- `test_runner.py`: Adapter error formatting, per-kind provider timeouts
 
 ## Configuration
 
@@ -89,7 +91,15 @@ All env vars prefixed with `LLM_BENCHER_`. Key ones:
 - `LLM_BENCHER_OPENAI_BASE_URL` (default: `https://api.openai.com/v1`)
 - `LLM_BENCHER_DATA_DIR` (default: `{project_root}/data`)
 - `LLM_BENCHER_SQLITE_ECHO` (default: false) — enables SQL query logging
-- `LLM_BENCHER_PROVIDER_TIMEOUT` (default: 30.0) — HTTP timeout for provider calls
+- `LLM_BENCHER_PROVIDER_TIMEOUT` (default: 30.0) — HTTP timeout for cloud/OpenAI-compatible provider calls
+- `LLM_BENCHER_LOCAL_PROVIDER_TIMEOUT` (default: 300.0) — HTTP timeout for LM Studio/Ollama (`registry.provider_timeout_seconds()`)
+
+## Debugging provider failures
+
+- Run fails at exact timeout → httpx disconnect; check `runs.failure_message` in `data/llm_bencher.db`
+- LM Studio server logs: `~/.lmstudio/server-logs/YYYY-MM/YYYY-MM-DD.N.log` — look for `Client disconnected`
+- `httpx.ReadTimeout` has empty `str()` — always use `format_adapter_error()`, not `str(exc)`
+- Reasoning models may return empty `content` while `reasoning_content` is populated — `openai_compat.py` only reads `content`
 
 ## Pages
 
