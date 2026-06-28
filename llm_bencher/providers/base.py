@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import AsyncGenerator
 
 import httpx
 
@@ -62,3 +63,27 @@ class ProviderAdapter(ABC):
     @abstractmethod
     async def run_chat(self, request: RunRequest) -> RunResult:
         """Execute one chat-style inference request."""
+
+    async def run_chat_stream(
+        self, request: RunRequest
+    ) -> AsyncGenerator[dict, None]:
+        """
+        Stream a chat-style inference request, yielding structured event dicts.
+
+        Each yielded dict has a ``type`` key:
+          ``{"type": "chunk", "text": str}``          – incremental output text
+          ``{"type": "usage", "prompt_tokens": int|None,
+              "completion_tokens": int|None, "total_tokens": int|None}``
+
+        The default implementation falls back to the blocking ``run_chat`` and
+        yields the full result as a single chunk so callers always get a
+        consistent event stream regardless of whether the adapter overrides this.
+        """
+        result = await self.run_chat(request)
+        yield {"type": "chunk", "text": result.output_text}
+        yield {
+            "type": "usage",
+            "prompt_tokens": result.prompt_tokens,
+            "completion_tokens": result.completion_tokens,
+            "total_tokens": result.total_tokens,
+        }

@@ -135,7 +135,9 @@
 
     <p id="result-placeholder" style="padding:40px 0;margin:0;text-align:center;color:var(--muted);font-size:0.9rem;font-style:italic;">Run a prompt to see output here.</p>
 
-    <p id="result-running" style="display:none;padding:40px 0;margin:0;text-align:center;color:var(--muted);font-size:0.95rem;">Running\u2026</p>
+    <p id="result-running" style="display:none;padding:40px 0;margin:0;text-align:center;color:var(--muted);font-size:0.95rem;">
+      Connecting to provider<span id="result-dots"></span>
+    </p>
 
     <pre id="result-output" style="display:none;margin:0;white-space:pre-wrap;word-break:break-word;font-family:'Cascadia Mono','Consolas',monospace;font-size:0.88rem;line-height:1.6;background:var(--bg-accent);padding:16px;border-radius:12px;overflow-x:auto;min-height:200px;"></pre>
 
@@ -288,21 +290,44 @@ promptSelect.addEventListener("change", async function() {
 });
 {% endif %}
 
-// Form submit
+// Animate the "Connecting…" dots while waiting for the first chunk.
+var _dotsInterval = null;
+function _startDots() {
+  var el = document.getElementById("result-dots");
+  if (!el) return;
+  var n = 0;
+  _dotsInterval = setInterval(function() {
+    n = (n + 1) % 4;
+    el.textContent = ".".repeat(n);
+  }, 400);
+}
+function _stopDots() {
+  if (_dotsInterval) { clearInterval(_dotsInterval); _dotsInterval = null; }
+  var el = document.getElementById("result-dots");
+  if (el) el.textContent = "";
+}
+
+// Form submit — uses /api/runs/stream (SSE) so output streams token-by-token.
 document.getElementById("run-form").addEventListener("submit", async function(e) {
   e.preventDefault();
   var runBtn = document.getElementById("run-btn");
   var runningEl = document.getElementById("result-running");
   var failureEl = document.getElementById("result-failure");
+  var outputEl = document.getElementById("result-output");
+  var metaEl = document.getElementById("result-meta");
+  var badge = document.getElementById("result-badge");
 
   runBtn.disabled = true;
   runBtn.textContent = "Running\u2026";
   document.getElementById("result-placeholder").style.display = "none";
-  document.getElementById("result-output").style.display = "none";
-  document.getElementById("result-badge").style.display = "none";
+  outputEl.style.display = "none";
+  outputEl.textContent = "";
+  badge.style.display = "none";
   document.getElementById("result-view-link").style.display = "none";
   runningEl.style.display = "block";
   failureEl.style.display = "none";
+  metaEl.textContent = "";
+  _startDots();
 
   var temperature = document.getElementById("temperature").value;
   var maxTokens = document.getElementById("max-tokens").value;
@@ -337,45 +362,103 @@ document.getElementById("run-form").addEventListener("submit", async function(e)
   if (selectedPromptId) body.prompt_id = parseInt(selectedPromptId);
   {% endif %}
 
+  function showError(msg) {
+    _stopDots();
+    runningEl.style.display = "none";
+    failureEl.style.display = "block";
+    document.getElementById("result-error").textContent = msg || "Unknown error";
+    badge.className = "badge badge-error";
+    badge.textContent = "Failed";
+    badge.style.display = "inline-block";
+  }
+
   try {
-    var resp = await fetch("/api/runs", {
+    var resp = await fetch("/api/runs/stream", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify(body),
     });
-    var data = await resp.json();
 
-    runningEl.style.display = "none";
-    var badge = document.getElementById("result-badge");
-    if (data.status === "succeeded") {
-      document.getElementById("result-output").style.display = "block";
-      document.getElementById("result-output").textContent = data.output_text || "";
-      badge.className = "badge badge-ready";
-      badge.textContent = "Succeeded";
-      badge.style.display = "inline-block";
-      var parts = [];
-      if (data.latency_ms != null) parts.push(data.latency_ms + " ms");
-      if (data.total_tokens != null) parts.push(data.total_tokens + " tokens");
-      document.getElementById("result-meta").textContent = parts.join(" \u00b7 ");
-      var link = document.getElementById("result-view-link");
-      link.href = "/runs/" + data.run_id;
-      link.style.display = "inline";
-    } else {
-      failureEl.style.display = "block";
-      document.getElementById("result-error").textContent = data.failure_message || "Unknown error";
-      badge.className = "badge badge-error";
-      badge.textContent = "Failed";
-      badge.style.display = "inline-block";
+    if (!resp.ok) {
+      var errData = await resp.json().catch(function() { return {}; });
+      showError(errData.detail || "HTTP " + resp.status);
+      return;
+    }
+
+    var reader = resp.body.getReader();
+    var decoder = new TextDecoder();
+    var sseBuffer = "";
+    var currentEvent = null;
+    var streamingStarted = false;
+    var chunkCount = 0; // live completion-token counter (1 chunk ≈ 1 token for LM Studio)
+
+    while (true) {
+      var chunk = await reader.read();
+      if (chunk.done) break;
+
+      sseBuffer += decoder.decode(chunk.value, {stream: true});
+
+      // Split on newlines; keep the last (potentially incomplete) segment.
+      var lines = sseBuffer.split("\n");
+      sseBuffer = lines.pop();
+
+      for (var i = 0; i < lines.length; i++) {
+        var line = lines[i].replace(/\r$/, ""); // strip CR from CRLF
+
+        if (line.startsWith("event: ")) {
+          currentEvent = line.slice(7).trim();
+
+        } else if (line.startsWith("data: ")) {
+          var payload;
+          try { payload = JSON.parse(line.slice(6)); } catch (ex) { continue; }
+
+          if (currentEvent === "start") {
+            // First event: switch from "Connecting…" to streaming output.
+            _stopDots();
+            runningEl.style.display = "none";
+            outputEl.textContent = "";
+            outputEl.style.display = "block";
+            metaEl.textContent = "0 tokens\u2026";
+            streamingStarted = true;
+
+          } else if (currentEvent === "chunk") {
+            outputEl.textContent += payload.text;
+            // Each LM Studio streaming chunk is ~1 token; update the live counter.
+            chunkCount++;
+            metaEl.textContent = chunkCount + " tokens\u2026";
+
+          } else if (currentEvent === "tokens") {
+            // Provider-reported exact counts replace the approximation.
+            var ct = payload.completion_tokens;
+            if (ct != null) metaEl.textContent = ct + " tokens\u2026";
+
+          } else if (currentEvent === "done") {
+            var parts = [];
+            if (payload.latency_ms != null) parts.push(payload.latency_ms + " ms");
+            if (payload.total_tokens != null) parts.push(payload.total_tokens + " tokens");
+            metaEl.textContent = parts.join(" \u00b7 ");
+            badge.className = "badge badge-ready";
+            badge.textContent = "Succeeded";
+            badge.style.display = "inline-block";
+            var link = document.getElementById("result-view-link");
+            link.href = "/runs/" + payload.run_id;
+            link.style.display = "inline";
+
+          } else if (currentEvent === "error") {
+            showError(payload.message);
+          }
+
+          currentEvent = null; // reset after consuming data line
+
+        } else if (line === "") {
+          currentEvent = null; // end-of-event blank line
+        }
+      }
     }
   } catch (err) {
-    runningEl.style.display = "none";
-    failureEl.style.display = "block";
-    document.getElementById("result-error").textContent = "Request failed: " + err.message;
-    var badge = document.getElementById("result-badge");
-    badge.className = "badge badge-error";
-    badge.textContent = "Failed";
-    badge.style.display = "inline-block";
+    showError("Request failed: " + err.message);
   } finally {
+    _stopDots();
     runBtn.disabled = false;
     runBtn.textContent = "Run prompt";
   }

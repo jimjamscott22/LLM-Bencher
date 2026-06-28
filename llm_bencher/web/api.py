@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, UploadFile
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
@@ -32,7 +33,7 @@ from llm_bencher.prompt_io import (
     load_suite_from_string,
 )
 from llm_bencher.providers.registry import get_adapter
-from llm_bencher.runner import build_run_request, execute_adapter
+from llm_bencher.runner import build_run_request, execute_adapter, format_adapter_error
 
 
 router = APIRouter(prefix="/api")
@@ -470,6 +471,132 @@ class RunCreateBody(BaseModel):
     template_inputs: dict[str, Any] = Field(default_factory=dict)
     temperature: float | None = None
     max_tokens: int | None = None
+
+
+@router.post("/runs/stream")
+async def create_run_stream(body: RunCreateBody, request: Request) -> StreamingResponse:
+    """
+    Create a Run and stream its output as Server-Sent Events (SSE).
+
+    Events emitted (each followed by a blank line per the SSE spec):
+      event: start   data: {"run_id": int}
+      event: chunk   data: {"text": str}
+      event: tokens  data: {"prompt_tokens": int|None, "completion_tokens": int|None,
+                             "total_tokens": int|None}
+      event: done    data: {"run_id": int, "status": str, "latency_ms": int,
+                             "prompt_tokens": int|None, "completion_tokens": int|None,
+                             "total_tokens": int|None}
+      event: error   data: {"message": str}
+    """
+    session_factory = request.app.state.session_factory
+    settings = request.app.state.settings
+
+    # Phase 1: validate provider, resolve model, create PENDING run — identical
+    # to the non-streaming create_run path.
+    with session_factory() as session:
+        provider = session.get(Provider, body.provider_id)
+        if provider is None:
+            raise HTTPException(status_code=404, detail="Provider not found")
+
+        pm = session.scalar(
+            select(ProviderModel).where(
+                ProviderModel.provider_id == body.provider_id,
+                ProviderModel.external_id == body.model_external_id,
+            )
+        )
+
+        adapter = get_adapter(provider, settings)
+
+        run = Run(
+            provider_id=body.provider_id,
+            provider_model_id=pm.id if pm else None,
+            prompt_id=body.prompt_id,
+            status=RunStatus.PENDING,
+            model_identifier=body.model_external_id,
+            model_name=body.model_name or body.model_external_id,
+            system_prompt=body.system_prompt,
+            user_prompt=body.user_prompt,
+            temperature=body.temperature,
+            max_tokens=body.max_tokens,
+            template_inputs=body.template_inputs,
+        )
+        session.add(run)
+        session.flush()
+        run_id = run.id
+        run_request = build_run_request(run)
+        session.commit()
+
+    timeout_seconds = adapter.timeout_seconds
+
+    async def event_generator():
+        yield f"event: start\ndata: {json.dumps({'run_id': run_id})}\n\n"
+
+        full_text = ""
+        prompt_tokens: int | None = None
+        completion_tokens: int | None = None
+        total_tokens: int | None = None
+        failure_message: str | None = None
+        started_at = _utc_now()
+
+        # Phase 2: stream from provider — no DB session held open.
+        try:
+            async with adapter:
+                async for event in adapter.run_chat_stream(run_request):
+                    if event["type"] == "chunk":
+                        full_text += event["text"]
+                        yield f"event: chunk\ndata: {json.dumps({'text': event['text']})}\n\n"
+                    elif event["type"] == "usage":
+                        prompt_tokens = event.get("prompt_tokens")
+                        completion_tokens = event.get("completion_tokens")
+                        total_tokens = event.get("total_tokens")
+                        yield (
+                            f"event: tokens\ndata: {json.dumps({'prompt_tokens': prompt_tokens, 'completion_tokens': completion_tokens, 'total_tokens': total_tokens})}\n\n"
+                        )
+        except Exception as exc:
+            failure_message = format_adapter_error(exc, timeout_seconds=timeout_seconds)
+            yield f"event: error\ndata: {json.dumps({'message': failure_message})}\n\n"
+
+        completed_at = _utc_now()
+        latency_ms = int((completed_at - started_at).total_seconds() * 1000)
+        status = RunStatus.SUCCEEDED if not failure_message and full_text else RunStatus.FAILED
+        if not failure_message and not full_text:
+            failure_message = "Provider returned an empty response"
+
+        # Phase 3: persist outcome — session re-opened after all network I/O.
+        with session_factory() as session:
+            run = session.get(Run, run_id)
+            run.status = status
+            run.started_at = started_at
+            run.completed_at = completed_at
+            run.failure_message = failure_message
+
+            if status == RunStatus.SUCCEEDED:
+                session.add(
+                    RunResultModel(
+                        run_id=run_id,
+                        raw_output_text=full_text,
+                        response_metadata={},
+                        latency_ms=latency_ms,
+                        prompt_tokens=prompt_tokens,
+                        completion_tokens=completion_tokens,
+                        total_tokens=total_tokens,
+                        raw_payload={},
+                    )
+                )
+            session.commit()
+
+        yield (
+            f"event: done\ndata: {json.dumps({'run_id': run_id, 'status': status.value, 'latency_ms': latency_ms, 'prompt_tokens': prompt_tokens, 'completion_tokens': completion_tokens, 'total_tokens': total_tokens})}\n\n"
+        )
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.post("/runs")

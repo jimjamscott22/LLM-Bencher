@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import time
+from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
 
 from llm_bencher.providers.base import ProviderAdapter
@@ -85,3 +87,54 @@ class OllamaAdapter(ProviderAdapter):
             total_tokens=total_tokens,
             raw_payload=data,
         )
+
+    async def run_chat_stream(
+        self, request: RunRequest
+    ) -> AsyncGenerator[dict, None]:
+        messages: list[dict[str, str]] = []
+        if request.system_prompt:
+            messages.append({"role": "system", "content": request.system_prompt})
+        messages.append({"role": "user", "content": request.user_prompt})
+
+        payload: dict = {
+            "model": request.model_id,
+            "messages": messages,
+            "stream": True,
+        }
+        if request.temperature is not None:
+            payload["options"] = {"temperature": request.temperature}
+        if request.max_tokens is not None:
+            payload.setdefault("options", {})["num_predict"] = request.max_tokens
+
+        async with self._get_client().stream(
+            "POST", f"{self._base_url}/api/chat", json=payload
+        ) as response:
+            response.raise_for_status()
+            async for line in response.aiter_lines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    data = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+
+                content = (data.get("message") or {}).get("content", "")
+                if content:
+                    yield {"type": "chunk", "text": content}
+
+                if data.get("done"):
+                    pt = data.get("prompt_eval_count")
+                    ct = data.get("eval_count")
+                    total = (
+                        (pt or 0) + (ct or 0)
+                        if pt is not None or ct is not None
+                        else None
+                    )
+                    yield {
+                        "type": "usage",
+                        "prompt_tokens": pt,
+                        "completion_tokens": ct,
+                        "total_tokens": total,
+                    }
+                    break
