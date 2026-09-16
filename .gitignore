@@ -211,3 +211,4 @@ __marimo__/
 .test-tmp/
 
 data/llm_bencher.db
+data/llm_bencher.db-shm
