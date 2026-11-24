@@ -2,7 +2,10 @@
 
 A FastAPI web application for testing, comparing, and benchmarking LLM services. Connect to LM Studio, Ollama, OpenAI, or any OpenAI-compatible endpoint — run prompts, batch test across models, compare outputs side-by-side, and track performance over time.
 
-![Screenshot of the app](img/LLM-Bencher_ScrnSht.png)
+<div align="center">
+  <img src="img\LLM-Bencher_ScrnSht.png" alt="screenshot of UI" height="400" width="600">
+</div>
+
 
 ## Features
 
